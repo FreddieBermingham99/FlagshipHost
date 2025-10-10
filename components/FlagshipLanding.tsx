@@ -9,7 +9,6 @@ import {
   MapPin,
   Activity,
   BadgeCheck,
-  Image as ImageIcon,
   BarChart3,
   Phone,
   Mail,
@@ -117,12 +116,6 @@ const Section = ({ id, children }: { id?: string; children: React.ReactNode }) =
   </section>
 )
 
-const Stat = ({ value, label }: { value: string; label: string }) => (
-  <div className="text-center">
-    <div className="text-3xl font-bold tracking-tight md:text-4xl">{value}</div>
-    <div className="mt-1 text-sm text-muted-foreground">{label}</div>
-  </div>
-)
 
 export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const [selectedSigns, setSelectedSigns] = useState<string[]>([])
@@ -248,7 +241,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
           </nav>
           <div className="flex items-center gap-2">
             <Button asChild>
-              <a href="#apply">I'm Interested</a>
+              <a href="#apply">I&apos;m Interested</a>
             </Button>
           </div>
         </div>
@@ -269,7 +262,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                 Become a <span className="text-primary">Flagship Stashpoint</span> in {p.city}
               </h2>
               <p className="mt-4 text-lg text-slate-700">
-                Join Stasher's premier partner programme and make {p.businessName} the <span className="text-primary font-bold">go‑to spot for luggage storage</span> in {p.city}. 
+                Join Stasher&apos;s premier partner programme and make {p.businessName} the <span className="text-primary font-bold">go‑to spot for luggage storage</span> in {p.city}. 
               </p>
             </div>
 
@@ -565,7 +558,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
               
               {submitSuccess && (
                 <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
-                  ✓ Thank you! Your interest has been submitted. We\'ll be in touch within one business day.
+                  ✓ Thank you! Your interest has been submitted. We&apos;ll be in touch within one business day.
                 </div>
               )}
               
