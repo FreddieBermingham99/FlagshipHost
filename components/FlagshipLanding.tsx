@@ -276,7 +276,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
             {/* Performance stats - current and expected */}
             <div id="performance" className="mt-10">
               <div className="text-center mb-6">
-                <h3 className="text-xl font-semibold">{p.businessName}'s Current Monthly Performance</h3>
+                <h3 className="text-xl font-semibold">{p.businessName}&apos;s Current Monthly Performance</h3>
               </div>
               <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
                 <Card className="bg-white border-white text-center">
@@ -359,7 +359,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                   <CardTitle className="text-base">Google Ads Boost paid for by Stasher</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-slate-600">
-                  We'll pay for Google Ads campaigns targeting {p.city} travellers and direct them to your listing.
+                  We&apos;ll pay for Google Ads campaigns targeting {p.city} travellers and direct them to your listing.
                 </CardContent>
               </Card>
               <Card>
@@ -377,16 +377,16 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                   <CardTitle className="text-base">Increased Website Traffic</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-slate-600">
-                  We'll improve the visibility of your listing on our website and blog to increase traffic and bookings.
+                  We&apos;ll improve the visibility of your listing on our website and blog to increase traffic and bookings.
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center gap-3 pb-2">
                   <BadgeCheck className="h-5 w-5" />
-                  <CardTitle className="text-base">Become Stasher's {p.city} Centrepiece</CardTitle>
+                  <CardTitle className="text-base">Become Stasher&apos;s {p.city} Centrepiece</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-slate-600">
-                  Stasher's out of home advertising campaigns in {p.city} will be strategically centred around {p.businessName} to attract more customers to your location.
+                  Stasher&apos;s out of home advertising campaigns in {p.city} will be strategically centred around {p.businessName} to attract more customers to your location.
                 </CardContent>
               </Card>
             </div>
@@ -416,7 +416,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                         <h3 className="text-2xl md:text-3xl font-bold text-primary">Why {p.businessName}?</h3>
                         <p className="mt-3 text-lg text-slate-700">
                           Your location near {p.landmark} makes you the ideal flagship candidate to serve
-                          travellers arriving in {p.city}. We'll drive demand directly to your door via paid
+                          travellers arriving in {p.city}. We&apos;ll drive demand directly to your door via paid
                           search and priority placement.
                         </p>
                         <ul className="mt-4 list-disc space-y-2 pl-5 text-base text-slate-700">
@@ -445,9 +445,9 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
             <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
             What kind of signage can a Flagship Stashpoint get?
             </h2>
-          <p className="mt-3 text-lg text-slate-700">
-            Choose the signage you'd like for {p.businessName}. Select all that apply - we can tailor them to your storefront.
-          </p>
+            <p className="mt-3 text-lg text-slate-700">
+              Choose the signage you&apos;d like for {p.businessName}. Select all that apply - we can tailor them to your storefront.
+            </p>
         </div>
         <SignagePicker
           items={signageItems}
@@ -460,7 +460,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
               ✓ {selectedSigns.length} item{selectedSigns.length !== 1 ? 's' : ''} selected
             </p>
           ) : (
-            <p>Select the signage items you're interested in</p>
+            <p>Select the signage items you&apos;re interested in</p>
           )}
         </div>
       </Section>
@@ -478,7 +478,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
               How is the top Stashpoint in {p.city} performing?
             </h2>
             <p className="mt-4 text-slate-700">
-              In {p.city}, Stasher's current top location has had:
+              In {p.city}, Stasher&apos;s current top location has had:
             </p>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               <Card>
@@ -583,7 +583,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
           <div className="lg:pl-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">What you'll get</CardTitle>
+                <CardTitle className="text-base">What you&apos;ll get</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-slate-700">
                 <ul className="list-disc space-y-2 pl-5">
