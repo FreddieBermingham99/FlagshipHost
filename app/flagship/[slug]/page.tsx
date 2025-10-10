@@ -41,6 +41,7 @@ export default async function FlagshipPage({ params }: PageProps) {
       }}
       formAction={business.formAction}
       googleMapsUrl={business.googleMapsUrl}
+      locale={business.locale}
       currency={business.currency}
       websiteImpressions={business.websiteImpressions}
       gmapsImpressions={business.gmapsImpressions}
