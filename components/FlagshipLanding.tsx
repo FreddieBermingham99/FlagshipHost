@@ -324,6 +324,9 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const locale = (props.locale || 'en') as 'en' | 'fr'
   const t = translations[locale]
   
+  // Debug: Log locale to console
+  console.log('Locale received:', props.locale, '| Using:', locale)
+  
   // Helper function to replace placeholders in translation strings
   const translate = (key: keyof typeof t, replacements?: Record<string, string>) => {
     let text = t[key] as string
