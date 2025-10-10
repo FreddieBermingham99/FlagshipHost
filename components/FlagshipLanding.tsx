@@ -276,25 +276,25 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-3xl font-bold text-primary">{p.websiteImpressions || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm text-primary">Website impressions</CardContent>
+                  <CardContent className="text-sm text-primary">Monthly Website impressions</CardContent>
                 </Card>
                 <Card className="bg-white border-white text-center">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-3xl font-bold text-primary">{p.gmapsImpressions || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm text-primary">Google Maps impressions</CardContent>
+                  <CardContent className="text-sm text-primary">Monthly Google Maps impressions</CardContent>
                 </Card>
                 <Card className="bg-white border-white text-center">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-3xl font-bold text-primary">{p.bookings || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm text-primary">Bookings</CardContent>
+                  <CardContent className="text-sm text-primary">MonthlyBookings</CardContent>
                 </Card>
                 <Card className="bg-white border-white text-center">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-3xl font-bold text-primary">{p.revenue || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm text-primary">Revenue</CardContent>
+                  <CardContent className="text-sm text-primary">Estimated MonthlyRevenue</CardContent>
                 </Card>
               </div>
               
@@ -309,7 +309,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                     </div>
                     <CardTitle className="text-3xl font-bold text-white">{p.liftWebsiteImpressions || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm font-bold text-blush">Expected website impressions</CardContent>
+                  <CardContent className="text-sm font-bold text-blush">Expected Monthly Website Impressions</CardContent>
                 </Card>
                 <Card className="bg-primary border-primary text-center">
                   <CardHeader className="pb-2">
@@ -318,7 +318,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                     </div>
                     <CardTitle className="text-3xl font-bold text-white">{p.liftGmapsImpressions || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm font-bold text-blush">Expected Google Maps impressions</CardContent>
+                  <CardContent className="text-sm font-bold text-blush">Expected Monthly Google Maps impressions</CardContent>
                 </Card>
                 <Card className="bg-primary border-primary text-center">
                   <CardHeader className="pb-2">
@@ -327,7 +327,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                     </div>
                     <CardTitle className="text-3xl font-bold text-white">{p.liftBookings || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm font-bold text-blush">Expected Bookings</CardContent>
+                  <CardContent className="text-sm font-bold text-blush">Expected Monthly Bookings</CardContent>
                 </Card>
                 <Card className="bg-primary border-primary text-center">
                   <CardHeader className="pb-2">
@@ -336,7 +336,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                     </div>
                     <CardTitle className="text-3xl font-bold text-white">{p.liftRevenue || '—'}</CardTitle>
                   </CardHeader>
-                  <CardContent className="text-sm font-bold text-blush">Expected Revenue</CardContent>
+                  <CardContent className="text-sm font-bold text-blush">Expected Monthly Revenue</CardContent>
                 </Card>
               </div>
               </div>
