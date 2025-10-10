@@ -11,9 +11,10 @@ function normalizeRange(rawRange: string) {
   // Accept "<tab>!A1:Z999" and auto-quote tab only if needed
   const m = rawRange.trim().match(/^([^!]+)!(.+)$/);
   if (!m) throw new Error("GOOGLE_SHEETS_RANGE must look like <tab>!A1:Z1000");
-  let [_, tab, cells] = m;
-  if (!tab.startsWith("'") && /[^A-Za-z0-9_]/.test(tab)) tab = `'${tab}'`;
-  return `${tab}!${cells}`;
+  let tabName = m[1];
+  const cells = m[2];
+  if (!tabName.startsWith("'") && /[^A-Za-z0-9_]/.test(tabName)) tabName = `'${tabName}'`;
+  return `${tabName}!${cells}`;
 }
 
 export async function fetchSheetRows(): Promise<RowObj[]> {

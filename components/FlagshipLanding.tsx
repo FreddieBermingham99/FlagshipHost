@@ -565,7 +565,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
               
               {submitSuccess && (
                 <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
-                  ✓ Thank you! Your interest has been submitted. We'll be in touch within one business day.
+                  ✓ Thank you! Your interest has been submitted. We\'ll be in touch within one business day.
                 </div>
               )}
               

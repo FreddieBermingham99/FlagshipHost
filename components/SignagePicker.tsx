@@ -55,6 +55,7 @@ export default function SignagePicker({ items, storageKey, initialSelected = [],
               active ? "border-[#164087] ring-2 ring-[#164087]" : "border-slate-200 hover:border-[#164087]/50"
             ].join(" ")}
           >
+            {/* Using img intentionally for external demo assets. */}
             <img
               src={item.src}
               alt={item.alt || item.name}
