@@ -22,7 +22,7 @@ export async function POST(req: Request): Promise<Response> {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
-  } catch (err) {
+  } catch {
     return new Response('Unexpected error', { status: 500 });
   }
 }
