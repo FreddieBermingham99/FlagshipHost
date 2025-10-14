@@ -416,11 +416,14 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
           setSubmitSuccess(false)
         }, 3000)
       } else {
-        throw new Error('Submission failed')
+        const errorText = await response.text()
+        console.error('Server error:', response.status, errorText)
+        throw new Error(`Submission failed: ${response.status} - ${errorText}`)
       }
     } catch (error) {
       console.error('Form submission error:', error)
-      alert('There was an error submitting the form. Please try again or contact us directly.')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      alert(`There was an error submitting the form: ${errorMessage}\n\nPlease try again or contact us directly.`)
     } finally {
       setIsSubmitting(false)
     }
