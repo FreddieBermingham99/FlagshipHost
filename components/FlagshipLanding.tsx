@@ -136,7 +136,7 @@ const translations = {
     
     // Performance
     currentPerformance: "{businessName}'s Current Monthly Performance",
-    expectedPerformance: 'Expected Performance as a Flagship Stashpoint',
+    expectedPerformance: 'Expected Monthly Performance as a Flagship Stashpoint',
     websiteImpressions: 'Website impressions',
     gmapsImpressions: 'Google Maps impressions',
     bookings: 'Bookings',
