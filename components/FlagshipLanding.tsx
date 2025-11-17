@@ -324,7 +324,7 @@ const translations = {
     ctaInterested: 'Estoy interesado',
     
     // Hero
-    heroTitle: 'Obtén cientos de nuevas reservas de Stasher cada mes.',
+    heroTitle: 'Obtén cientos de nuevas reservas a través de Stasher cada mes.',
     heroSubtitle: 'Conviértete en un Flagship Stashpoint en',
     heroDescription: 'Únete al programa de socios premium de Stasher y convierte a {businessName} en el lugar de referencia para el almacenamiento de equipaje en {city}.',
     
@@ -343,13 +343,13 @@ const translations = {
     // How section
     howTitle: '¿Cómo logramos esta mejora?',
     googleAdsTitle: 'Anuncios de Google pagados por Stasher',
-    googleAdsDesc: 'Pagaremos campañas de Google Ads dirigidas a viajeros de {city} y los dirigiremos a tu anuncio.',
+    googleAdsDesc: 'Pagaremos campañas de Google Ads enfocadas a viajeros en {city} y los dirigiremos a tu anuncio.',
     brandedKitTitle: 'Kit de tienda de marca proporcionado por Stasher',
-    brandedKitDesc: 'Señalización exterior e interior de tu elección, co-marcada con {businessName} para aumentar la confianza y las visitas.',
+    brandedKitDesc: 'Señalización exterior e interior de tu elección, conjuntamente con {businessName} para aumentar la confianza y las visitas.',
     trafficTitle: 'Aumento del tráfico del sitio web',
     trafficDesc: 'Mejoraremos la visibilidad de tu anuncio en nuestro sitio web y blog para aumentar el tráfico y las reservas.',
     centerpieceTitle: 'Conviértete en el punto central de Stasher en {city}',
-    centerpieceDesc: 'Las campañas publicitarias fuera del hogar de Stasher en {city} estarán estratégicamente centradas en {businessName} para atraer más clientes a tu ubicación.',
+    centerpieceDesc: 'Las campañas publicitarias en exteriores de Stasher en {city} estarán estratégicamente centradas en {businessName} para atraer más clientes a tu ubicación.',
     
     // CTA buttons
     registerInterest: 'Registra tu interés',
@@ -357,14 +357,14 @@ const translations = {
     
     // Why section
     whyTitle: '¿Por qué {businessName}?',
-    whyDescription: 'Tu ubicación cerca de {landmark} te convierte en el candidato ideal para servir a los viajeros que llegan a {city}. Generaremos demanda directamente a tu puerta mediante búsqueda de pago y ubicación prioritaria.',
-    whyBullet1: 'Aumenta tus ingresos mensuales en cientos de {currency}',
-    whyBullet2: 'Clasifica como uno de nuestros mejores Stashpoints en {city}',
-    whyBullet3: 'Benefíciate de nuestras campañas publicitarias fuera del hogar y de pago en {city}',
-    whyBullet4: 'Conviértete en el destino Stashpoint principal de tu área',
+    whyDescription: 'Tu ubicación cerca de {landmark} te convierte en el candidato ideal para servir a los viajeros que llegan a {city}. Generaremos demanda directamente a tu puerta a través de anuncios de pago en buscadores y ubicación prioritaria.',
+    whyBullet1: 'Aumenta tus ingresos mensuales hasta en cientos de {currency}',
+    whyBullet2: 'Posicionate como uno de nuestros mejores Stashpoints en {city}',
+    whyBullet3: 'Benefíciate de nuestras campañas publicitarias en exteriores y de pago en {city}',
+    whyBullet4: 'Conviértete en el destino Stashpoint principal de tu zona',
     
     // Signage
-    signageTitle: '¿Qué tipo de señalización puede obtener un Flagship Stashpoint?',
+    signageTitle: '¿Qué tipo de señalización puedes obtener como Flagship Stashpoint?',
     signageDescription: 'Elige la señalización que te gustaría para {businessName}. Selecciona todas las que apliquen - podemos adaptarlas a tu tienda.',
     signageSelected: '{count} artículo{plural} seleccionado{plural}',
     signagePrompt: 'Selecciona los artículos de señalización que te interesan',
@@ -396,7 +396,7 @@ const translations = {
     whatYouGet: 'Lo que obtendrás',
     benefitPriority: 'Anuncio prioritario y destacado en la página de la ciudad',
     benefitAds: 'Inclusión en Google Ads y contenido del blog',
-    benefitSignage: 'Kit de señalización co-marcada (letreros, alfombras, pegatinas de horarios, banderas)',
+    benefitSignage: 'Kit de señalización conjunta con tu marca (letreros, alfombras, pegatinas de horarios, banderas)',
     benefitVisibility: 'Visibilidad mejorada en nuestro sitio web',
     benefitCenterpiece: 'El punto central de nuestras campañas publicitarias en {city}',
     benefitReviews: 'Aumento de reseñas y visibilidad en Google Maps',
@@ -410,7 +410,6 @@ const translations = {
     footerBenefits: 'Beneficios',
     footerResults: 'Resultados',
   },
-};
 
 export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const [selectedSigns, setSelectedSigns] = useState<string[]>([])
