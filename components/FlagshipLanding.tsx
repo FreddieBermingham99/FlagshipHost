@@ -410,6 +410,7 @@ const translations = {
     footerBenefits: 'Beneficios',
     footerResults: 'Resultados',
   },
+}
 
 export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const [selectedSigns, setSelectedSigns] = useState<string[]>([])
