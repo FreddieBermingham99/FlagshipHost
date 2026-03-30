@@ -29,14 +29,24 @@ export function resolveFlagshipSiteBaseUrl(): string {
   return 'https://flagship-host.vercel.app'
 }
 
-/** Full share URL (UTM query string). */
-export function flagshipPublicUrl(slug: string): string {
+export type FlagshipPublicUrlOptions = {
+  /**
+   * When set (DB mode), links use the short path `/f/{id}` instead of a long `/flagship/{slug}`.
+   */
+  stashpointId?: number | string | null
+}
+
+/**
+ * Public share URL for emails and the dashboard.
+ * Prefers `/f/{stashpointId}` when an id is available (short, readable); otherwise `/flagship/{slug}`.
+ * No query string — keeps links clean; long slugs previously duplicated tracking params and looked spammy.
+ */
+export function flagshipPublicUrl(slug: string, options?: FlagshipPublicUrlOptions): string {
   const base = resolveFlagshipSiteBaseUrl()
+  const id = options?.stashpointId
+  if (id !== null && id !== undefined && String(id).trim() !== '') {
+    return `${base}/f/${encodeURIComponent(String(id).trim())}`
+  }
   const s = slug.trim()
-  const q = new URLSearchParams({
-    source: 'website',
-    medium: 'email',
-    campaign: s,
-  })
-  return `${base}/flagship/${encodeURIComponent(s)}?${q.toString()}`
+  return `${base}/flagship/${encodeURIComponent(s)}`
 }

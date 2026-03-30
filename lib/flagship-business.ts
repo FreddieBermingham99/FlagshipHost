@@ -97,7 +97,7 @@ export function buildFlagshipPropsFromMetrics(
 
   return {
     slug,
-    flagshipUrl: flagshipPublicUrl(slug),
+    flagshipUrl: flagshipPublicUrl(slug, { stashpointId: row.stashpoint_id }),
     businessName: row.business_name,
     city: row.city,
     landmark: row.poi ?? undefined,
@@ -142,6 +142,13 @@ export async function findStashpointRowBySlug(
   return (
     rows.find((r) => slugFromBusinessName(r.business_name) === normalized) ?? null
   )
+}
+
+export async function findStashpointRowById(
+  id: number | string
+): Promise<StashpointBusinessMetricsRow | null> {
+  const rows = await listStashpointsFromDb({ stashpointId: String(id) })
+  return rows[0] ?? null
 }
 
 export async function getAllFlagshipSlugs(): Promise<string[]> {
