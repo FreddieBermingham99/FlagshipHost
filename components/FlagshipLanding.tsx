@@ -26,7 +26,7 @@ export type FlagshipProps = {
   city: string
   landmark?: string
   heroImageUrl?: string
-  contact: { email?: string; phone?: string }
+  contact?: { email?: string; phone?: string }
   formAction?: string
   googleMapsUrl?: string
   locale?: string // 'en', 'fr', or 'es'

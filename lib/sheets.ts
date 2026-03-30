@@ -46,5 +46,13 @@ export async function fetchSheetRows(): Promise<RowObj[]> {
 export async function getBusinessBySlug(slug: string) {
   const rows = await fetchSheetRows();
   const target = slug.trim().toLowerCase();
-  return rows.find((r) => (r.slug || "").trim().toLowerCase() === target) ?? null;
+  const found = rows.find((r) => (r.slug || "").trim().toLowerCase() === target) ?? null;
+  
+  // Debug logging
+  if (!found) {
+    console.warn(`[Sheets] Slug not found: "${slug}" (normalized: "${target}")`);
+    console.warn(`[Sheets] Total rows fetched: ${rows.length}`);
+  }
+  
+  return found;
 }
