@@ -96,11 +96,6 @@ function yn(v: boolean | null | undefined): string {
   return '—'
 }
 
-function toDatetimeLocalValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 function csvEscapeCell(value: string): string {
   if (/[",\r\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`
@@ -187,14 +182,6 @@ function downloadStashpointsCsv(rows: TableRow[], cityLabel: string | null): voi
   a.rel = 'noopener'
   a.click()
   URL.revokeObjectURL(url)
-}
-
-type ScheduledCampaignJob = {
-  id: string
-  created_at: string
-  send_at: string
-  subject: string
-  recipient_count: number
 }
 
 type DashboardSortKey =
@@ -437,13 +424,6 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
   )
   const [testEmailTo, setTestEmailTo] = useState('freddie@citystasher.com')
   const [testEmailSending, setTestEmailSending] = useState(false)
-  const [scheduleAtLocal, setScheduleAtLocal] = useState(() =>
-    toDatetimeLocalValue(new Date(Date.now() + 60 * 60 * 1000))
-  )
-  const [scheduleConfigured, setScheduleConfigured] = useState<boolean | null>(null)
-  const [scheduledJobs, setScheduledJobs] = useState<ScheduledCampaignJob[]>([])
-  const [scheduleSubmitting, setScheduleSubmitting] = useState(false)
-  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const sortedRows = useMemo(() => {
@@ -505,28 +485,6 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
     document.addEventListener('click', onDocClick)
     return () => document.removeEventListener('click', onDocClick)
   }, [])
-
-  const loadScheduledJobs = useCallback(async () => {
-    try {
-      const res = await fetch('/api/dashboard/campaign/schedule')
-      const data = (await res.json()) as {
-        configured?: boolean
-        jobs?: ScheduledCampaignJob[]
-        error?: string
-      }
-      if (!res.ok) return
-      setScheduleConfigured(data.configured ?? false)
-      setScheduledJobs(data.jobs ?? [])
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadScheduledJobs()
-    const t = setInterval(() => void loadScheduledJobs(), 60_000)
-    return () => clearInterval(t)
-  }, [loadScheduledJobs])
 
   useEffect(() => {
     let cancelled = false
@@ -729,83 +687,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
     }
   }
 
-  async function scheduleCampaignSend() {
-    setCampaignMessage(null)
-    setCampaignFailures(null)
-    if (!campaignSubject.trim() || !campaignTextBody.trim()) {
-      setCampaignMessage('Subject and plain-text body are required.')
-      return
-    }
-    if (emailRecipients.length === 0) {
-      setCampaignMessage('No rows with owner email in the current table.')
-      return
-    }
-    const sendAt = new Date(scheduleAtLocal)
-    if (Number.isNaN(sendAt.getTime())) {
-      setCampaignMessage('Choose a valid date and time.')
-      return
-    }
-    const whenStr = sendAt.toLocaleString(undefined, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })
-    const ok = window.confirm(
-      `Schedule this campaign for ${whenStr} (${Intl.DateTimeFormat().resolvedOptions().timeZone})?\n\nRecipients: ${emailRecipients.length} (snapshot saved now; changing the table later will not change this job).`
-    )
-    if (!ok) return
-
-    setScheduleSubmitting(true)
-    try {
-      const res = await fetch('/api/dashboard/campaign/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sendAt: sendAt.toISOString(),
-          subject: campaignSubject,
-          textBody: campaignTextBody,
-          htmlBody: campaignHtmlBody.trim() || undefined,
-          recipients: emailRecipients,
-        }),
-      })
-      const data = (await res.json()) as { error?: string; id?: string }
-      if (!res.ok) {
-        setCampaignMessage(data.error || 'Failed to schedule campaign')
-        return
-      }
-      setCampaignMessage(
-        `Scheduled (${emailRecipients.length} recipients). It will send after the chosen time once the cron worker runs (up to ~1 minute later on Vercel).`
-      )
-      await loadScheduledJobs()
-    } catch {
-      setCampaignMessage('Network error while scheduling.')
-    } finally {
-      setScheduleSubmitting(false)
-    }
-  }
-
-  async function cancelScheduledJob(id: string) {
-    if (!window.confirm('Cancel this scheduled send?')) return
-    setCancellingJobId(id)
-    try {
-      const res = await fetch(
-        `/api/dashboard/campaign/schedule?id=${encodeURIComponent(id)}`,
-        { method: 'DELETE' }
-      )
-      const data = (await res.json()) as { error?: string }
-      if (!res.ok) {
-        setCampaignMessage(data.error || 'Could not cancel')
-        return
-      }
-      setCampaignMessage('Scheduled job cancelled.')
-      await loadScheduledJobs()
-    } catch {
-      setCampaignMessage('Network error while cancelling.')
-    } finally {
-      setCancellingJobId(null)
-    }
-  }
-
-  const campaignBusy = campaignSending || testEmailSending || scheduleSubmitting
+  const campaignBusy = campaignSending || testEmailSending
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900">
@@ -1246,97 +1128,6 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                   {testEmailSending ? 'Sending test…' : 'Send test email'}
                 </Button>
               </div>
-            </div>
-
-            <div className="rounded-md border border-violet-200 bg-violet-50/50 px-3 py-3 space-y-3">
-              <p className="text-xs text-slate-700">
-                <strong>Schedule send</strong> — saves this subject, body, and the current recipient list
-                to Postgres. A cron job (every minute on Vercel when{' '}
-                <span className="font-mono text-[11px]">vercel.json</span> is deployed) calls{' '}
-                <span className="font-mono text-[11px]">/api/cron/campaign-schedule</span> with{' '}
-                <span className="font-mono">CRON_SECRET</span> to deliver due jobs. Locally, trigger the
-                same URL manually or with curl.
-              </p>
-              {scheduleConfigured === null && (
-                <p className="text-xs text-slate-500">Checking scheduling setup…</p>
-              )}
-              {scheduleConfigured === false && (
-                <p className="text-xs text-amber-900">
-                  Scheduling is off until you set{' '}
-                  <span className="font-mono">CAMPAIGN_SCHEDULE_DATABASE_URL</span> to a writable Postgres URL
-                  (not the read-only Stasher replica). The jobs table is created on first use.
-                </p>
-              )}
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
-                <div>
-                  <Label htmlFor="campaign-schedule-at">Send at (your local time)</Label>
-                  <Input
-                    id="campaign-schedule-at"
-                    type="datetime-local"
-                    className="mt-1 max-w-xs font-mono text-xs"
-                    value={scheduleAtLocal}
-                    min={toDatetimeLocalValue(new Date())}
-                    onChange={(e) => setScheduleAtLocal(e.target.value)}
-                    disabled={campaignBusy || scheduleConfigured !== true}
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={scheduleCampaignSend}
-                  disabled={
-                    campaignBusy ||
-                    scheduleConfigured !== true ||
-                    !selectedCity ||
-                    emailRecipients.length === 0 ||
-                    !campaignSubject.trim() ||
-                    !campaignTextBody.trim()
-                  }
-                >
-                  {scheduleSubmitting ? 'Scheduling…' : 'Schedule send'}
-                </Button>
-              </div>
-              {scheduledJobs.length > 0 && (
-                <div className="border-t border-violet-200 pt-2">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                    Upcoming
-                  </p>
-                  <ul className="space-y-2 text-xs">
-                    {scheduledJobs.map((j) => (
-                      <li
-                        key={j.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/60 bg-white/80 px-2 py-1.5"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium text-slate-800">
-                            {new Date(j.send_at).toLocaleString(undefined, {
-                              dateStyle: 'medium',
-                              timeStyle: 'short',
-                            })}
-                          </span>
-                          <span className="text-slate-600">
-                            {' '}
-                            · {j.recipient_count} recipients ·{' '}
-                            <span className="break-words" title={j.subject}>
-                              {j.subject.length > 48 ? `${j.subject.slice(0, 48)}…` : j.subject}
-                            </span>
-                          </span>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 shrink-0 text-red-700 hover:text-red-800"
-                          disabled={cancellingJobId !== null}
-                          onClick={() => void cancelScheduledJob(j.id)}
-                        >
-                          {cancellingJobId === j.id ? '…' : 'Cancel'}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
