@@ -710,7 +710,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
             . Set <span className="font-mono">FLAGSHIP_PUBLIC_BASE_URL</span> or{' '}
             <span className="font-mono">NEXT_PUBLIC_SITE_URL</span> for a custom domain; on Vercel
             we fall back to <span className="font-mono">VERCEL_URL</span> when those are unset.
-            Share links use short paths <span className="font-mono">/f/12345</span> (stashpoint id) when
+            Share links use short paths <span className="font-mono">/f/…</span> (stashpoint id from the DB) when
             available; otherwise <span className="font-mono">/flagship/your-slug</span>.
           </p>
         </div>

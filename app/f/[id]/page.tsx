@@ -21,8 +21,9 @@ export default async function FlagshipShortLinkPage({ params }: PageProps) {
     notFound()
   }
 
-  const raw = params.id?.trim() ?? ''
-  if (!/^\d+$/.test(raw)) {
+  const raw = decodeURIComponent(params.id?.trim() ?? '')
+  // Match DB `s.id::text`: decimal int, UUID, hex-style ids (not only digits).
+  if (!/^[0-9a-fA-F-]{1,64}$/i.test(raw)) {
     notFound()
   }
 

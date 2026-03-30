@@ -256,7 +256,7 @@ WITH opening_hours_summary AS (
 )
 
 SELECT
-    s.id                                     AS stashpoint_id,
+    s.id::text                               AS stashpoint_id,
     s.business_name                          AS business_name,
     l.name                                   AS city,
     u.email                                  AS owner_email,
