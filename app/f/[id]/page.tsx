@@ -3,8 +3,7 @@ import FlagshipLanding from '@/components/FlagshipLanding'
 import {
   buildFlagshipPropsFromMetrics,
   findStashpointRowById,
-  loadFlagshipDashboardOverrides,
-  slugFromBusinessName,
+  resolvePublicFlagshipOverrides,
   toFlagshipLandingProps,
 } from '@/lib/flagship-business'
 import { isStasherDbConfigured } from '@/lib/stasher-db'
@@ -32,8 +31,7 @@ export default async function FlagshipShortLinkPage({ params }: PageProps) {
     notFound()
   }
 
-  const slug = slugFromBusinessName(row.business_name)
-  const overrides = await loadFlagshipDashboardOverrides(slug)
+  const overrides = await resolvePublicFlagshipOverrides(row.city)
   const pkg = buildFlagshipPropsFromMetrics(row, overrides)
   return <FlagshipLanding {...toFlagshipLandingProps(pkg)} />
 }

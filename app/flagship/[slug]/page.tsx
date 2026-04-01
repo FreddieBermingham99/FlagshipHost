@@ -4,7 +4,7 @@ import {
   buildFlagshipPropsFromMetrics,
   findStashpointRowBySlug,
   getAllFlagshipSlugs,
-  loadFlagshipDashboardOverrides,
+  resolvePublicFlagshipOverrides,
   toFlagshipLandingProps,
 } from '@/lib/flagship-business'
 import { isStasherDbConfigured } from '@/lib/stasher-db'
@@ -50,7 +50,7 @@ export default async function FlagshipPage({ params }: PageProps) {
       }
       notFound()
     }
-    const overrides = await loadFlagshipDashboardOverrides(params.slug)
+    const overrides = await resolvePublicFlagshipOverrides(row.city)
     const pkg = buildFlagshipPropsFromMetrics(row, overrides)
     return <FlagshipLanding {...toFlagshipLandingProps(pkg)} />
   }

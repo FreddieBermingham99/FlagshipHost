@@ -424,6 +424,9 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
   )
   const [testEmailTo, setTestEmailTo] = useState('freddie@citystasher.com')
   const [testEmailSending, setTestEmailSending] = useState(false)
+  const [publishConfigured, setPublishConfigured] = useState<boolean | null>(null)
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [publishMessage, setPublishMessage] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const sortedRows = useMemo(() => {
@@ -484,6 +487,22 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
     }
     document.addEventListener('click', onDocClick)
     return () => document.removeEventListener('click', onDocClick)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/dashboard/flagship/publish')
+        const data = (await res.json()) as { configured?: boolean }
+        if (!cancelled && res.ok) setPublishConfigured(data.configured ?? false)
+      } catch {
+        if (!cancelled) setPublishConfigured(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -573,6 +592,34 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
 
   const refreshTable = () => {
     if (selectedCity) void loadRows(selectedCity, form)
+  }
+
+  async function publishLiveOverrides() {
+    if (!selectedCity) return
+    setPublishMessage(null)
+    setPublishBusy(true)
+    try {
+      const res = await fetch('/api/dashboard/flagship/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          city: selectedCity,
+          overrides: formToOverrides(form),
+        }),
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) {
+        setPublishMessage(data.error || 'Publish failed')
+        return
+      }
+      setPublishMessage(
+        `Published overrides for “${selectedCity}”. Public /flagship and /f links for this city will use them on the next request.`
+      )
+    } catch {
+      setPublishMessage('Network error while publishing.')
+    } finally {
+      setPublishBusy(false)
+    }
   }
 
   async function logout() {
@@ -784,11 +831,49 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-lg">Landing overrides</CardTitle>
-              <Button type="button" variant="outline" size="sm" onClick={refreshTable}>
-                Refresh table
-              </Button>
+            <CardHeader className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="text-lg">Landing overrides</CardTitle>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={
+                      !selectedCity ||
+                      publishBusy ||
+                      publishConfigured !== true
+                    }
+                    onClick={publishLiveOverrides}
+                  >
+                    {publishBusy ? 'Publishing…' : 'Publish live'}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={refreshTable}>
+                    Refresh table
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600">
+                <strong>Refresh table</strong> updates the preview in this dashboard only.{' '}
+                <strong>Publish live</strong> saves these fields for the selected city so public flagship
+                pages (and “top Stashpoint” stats) show them — requires{' '}
+                <span className="font-mono">FLAGSHIP_CITY_OVERRIDES_DATABASE_URL</span> in the environment.
+              </p>
+              {publishConfigured === false && (
+                <p className="text-xs text-amber-900">
+                  Live publishing is off: add a writable Postgres URL as{' '}
+                  <span className="font-mono">FLAGSHIP_CITY_OVERRIDES_DATABASE_URL</span> (e.g. Neon). The
+                  table is created automatically on first publish.
+                </p>
+              )}
+              {publishMessage && (
+                <p
+                  className={`text-xs ${publishMessage.startsWith('Published') ? 'text-green-800' : 'text-red-700'}`}
+                  role="status"
+                >
+                  {publishMessage}
+                </p>
+              )}
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">

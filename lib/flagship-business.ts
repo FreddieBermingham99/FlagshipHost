@@ -1,8 +1,9 @@
 import type { FlagshipProps } from '@/components/FlagshipLanding'
 import {
-  DEFAULT_FLAGSHIP_DASHBOARD_OVERRIDES,
+  normalizeDashboardOverrides,
   type FlagshipDashboardOverrides,
 } from '@/lib/flagship-dashboard-defaults'
+import { loadPublishedCityOverridePayload } from '@/lib/flagship-city-overrides-db'
 import { flagshipPublicUrl } from '@/lib/flagship-site-url'
 import { listStashpointsFromDb, type StashpointBusinessMetricsRow } from '@/lib/stasher-db'
 
@@ -156,9 +157,13 @@ export async function getAllFlagshipSlugs(): Promise<string[]> {
   return [...new Set(rows.map((r) => slugFromBusinessName(r.business_name)))]
 }
 
-/** Shared defaults for flagship pages (same as dashboard form defaults). */
-export async function loadFlagshipDashboardOverrides(
-  _slug: string
+/**
+ * Overrides for public flagship pages: code defaults + optional row published from the dashboard
+ * for this city (`FLAGSHIP_CITY_OVERRIDES_DATABASE_URL`).
+ */
+export async function resolvePublicFlagshipOverrides(
+  city: string
 ): Promise<FlagshipDashboardOverrides> {
-  return { ...DEFAULT_FLAGSHIP_DASHBOARD_OVERRIDES }
+  const published = await loadPublishedCityOverridePayload(city)
+  return normalizeDashboardOverrides(published ?? {})
 }
