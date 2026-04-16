@@ -4,11 +4,11 @@ import {
   type FlagshipDashboardOverrides,
 } from '@/lib/flagship-dashboard-defaults'
 import { loadPublishedCityOverridePayload } from '@/lib/flagship-city-overrides-db'
-import { flagshipPublicUrl } from '@/lib/flagship-site-url'
+import { flagshipPublicUrl, programmePublicUrl } from '@/lib/flagship-site-url'
 import { listStashpointsFromDb, type StashpointBusinessMetricsRow } from '@/lib/stasher-db'
 
 export type { FlagshipDashboardOverrides } from '@/lib/flagship-dashboard-defaults'
-export { flagshipPublicUrl, resolveFlagshipSiteBaseUrl } from '@/lib/flagship-site-url'
+export { flagshipPublicUrl, programmePublicUrl, resolveFlagshipSiteBaseUrl } from '@/lib/flagship-site-url'
 
 /**
  * Mirrors Google Sheets: LOWER(REGEXREPLACE(Business Name,"[^a-zA-Z0-9]+", "-"))
@@ -25,16 +25,19 @@ export function slugFromBusinessName(businessName: string): string {
 export type FlagshipBusinessPackage = FlagshipProps & {
   slug: string
   flagshipUrl: string
+  programmeUrl: string
 }
 
 /** Drops metadata used for emails / dashboard; pass the result to `FlagshipLanding`. */
 export function toFlagshipLandingProps({
   slug: _omitSlug,
   flagshipUrl: _omitUrl,
+  programmeUrl: _omitProgrammeUrl,
   ...landing
 }: FlagshipBusinessPackage): FlagshipProps {
   void _omitSlug
   void _omitUrl
+  void _omitProgrammeUrl
   return landing
 }
 
@@ -99,6 +102,7 @@ export function buildFlagshipPropsFromMetrics(
   return {
     slug,
     flagshipUrl: flagshipPublicUrl(slug, { stashpointId: row.stashpoint_id }),
+    programmeUrl: programmePublicUrl(slug),
     businessName: row.business_name,
     city: row.city,
     landmark: row.poi ?? undefined,

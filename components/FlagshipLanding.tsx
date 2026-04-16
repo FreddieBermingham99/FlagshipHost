@@ -28,6 +28,7 @@ export type FlagshipProps = {
   heroImageUrl?: string
   contact?: { email?: string; phone?: string }
   formAction?: string
+  stashpointId?: string
   googleMapsUrl?: string
   locale?: string // 'en', 'fr', or 'es'
   // Current performance stats
@@ -867,7 +868,8 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                   name="notes"
                 />
               </div>
-              {/* Hidden input for selected signs */}
+              <input type="hidden" name="source" value="flagship" />
+              <input type="hidden" name="stashpointId" value={props.stashpointId || ''} />
               <input type="hidden" name="selectedSigns" value={JSON.stringify(selectedSigns)} />
               
               {submitSuccess && (

@@ -71,6 +71,7 @@ export async function POST(req: Request) {
   const businessName = typeof row.businessName === 'string' ? row.businessName : ''
   const city = typeof row.city === 'string' ? row.city : ''
   const flagshipUrl = typeof row.flagshipUrl === 'string' ? row.flagshipUrl : ''
+  const programmeUrl = typeof row.programmeUrl === 'string' ? row.programmeUrl : ''
   const ownerEmail =
     typeof row.ownerEmail === 'string' && row.ownerEmail.trim() ? row.ownerEmail.trim() : ''
 
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
     businessName,
     city,
     flagshipUrl,
+    programmeUrl,
   }
 
   const merged = mergeCampaignForRecipient(subject, textBody, htmlBody, mergeSource)

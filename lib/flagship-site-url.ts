@@ -50,3 +50,9 @@ export function flagshipPublicUrl(slug: string, options?: FlagshipPublicUrlOptio
   const s = slug.trim()
   return `${base}/flagship/${encodeURIComponent(s)}`
 }
+
+/** Programme (tier selection) page URL. Always uses `/programme/{slug}`. */
+export function programmePublicUrl(slug: string): string {
+  const base = resolveFlagshipSiteBaseUrl()
+  return `${base}/programme/${encodeURIComponent(slug.trim())}`
+}

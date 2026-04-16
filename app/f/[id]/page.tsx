@@ -33,5 +33,5 @@ export default async function FlagshipShortLinkPage({ params }: PageProps) {
 
   const overrides = await resolvePublicFlagshipOverrides(row.city)
   const pkg = buildFlagshipPropsFromMetrics(row, overrides)
-  return <FlagshipLanding {...toFlagshipLandingProps(pkg)} />
+  return <FlagshipLanding {...toFlagshipLandingProps(pkg)} stashpointId={String(row.stashpoint_id)} />
 }

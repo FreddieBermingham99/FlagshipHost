@@ -52,7 +52,7 @@ export default async function FlagshipPage({ params }: PageProps) {
     }
     const overrides = await resolvePublicFlagshipOverrides(row.city)
     const pkg = buildFlagshipPropsFromMetrics(row, overrides)
-    return <FlagshipLanding {...toFlagshipLandingProps(pkg)} />
+    return <FlagshipLanding {...toFlagshipLandingProps(pkg)} stashpointId={String(row.stashpoint_id)} />
   }
 
   const business = await getBusinessBySlug(params.slug)
@@ -84,6 +84,7 @@ export default async function FlagshipPage({ params }: PageProps) {
         phone: business.contactPhone,
       }}
       formAction={business.formAction}
+      stashpointId={business.stashpointId || business.stashpoint_id}
       googleMapsUrl={business.googleMapsUrl}
       locale={business.locale}
       currency={business.currency}

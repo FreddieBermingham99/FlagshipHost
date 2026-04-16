@@ -17,6 +17,7 @@ type TableRow = FlagshipDashboardOverrides &
   Record<string, string | undefined> & {
     slug: string
     flagshipUrl: string
+    programmeUrl: string
     relativePath: string
     businessName: string
     city: string
@@ -123,6 +124,7 @@ function downloadStashpointsCsv(rows: TableRow[], cityLabel: string | null): voi
     'Opens before 9:00',
     'Open past 21:00',
     'Flagship URL',
+    'Programme URL',
     'Owner email',
     'Owner phone',
     'POI',
@@ -151,6 +153,7 @@ function downloadStashpointsCsv(rows: TableRow[], cityLabel: string | null): voi
       yn(r.openBefore9am),
       yn(r.openPast9pm),
       stringifyTableCell(r.flagshipUrl),
+      stringifyTableCell(r.programmeUrl),
       stringifyTableCell(r.ownerEmail ?? ''),
       stringifyTableCell(r.ownerPhone ?? ''),
       stringifyTableCell(r.landmark ?? ''),
@@ -194,6 +197,7 @@ type DashboardSortKey =
   | 'openBefore9am'
   | 'openPast9pm'
   | 'flagshipUrl'
+  | 'programmeUrl'
   | 'ownerEmail'
   | 'ownerPhone'
   | 'landmark'
@@ -281,6 +285,8 @@ function textSortValue(row: TableRow, key: DashboardSortKey): string {
       return row.city ?? ''
     case 'flagshipUrl':
       return row.flagshipUrl ?? ''
+    case 'programmeUrl':
+      return row.programmeUrl ?? ''
     case 'ownerEmail':
       return row.ownerEmail ?? ''
     case 'ownerPhone':
@@ -440,6 +446,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
       businessName: string
       city: string
       flagshipUrl: string
+      programmeUrl: string
     }[] = []
     const seen = new Set<string>()
     for (const r of sortedRows) {
@@ -453,6 +460,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
         businessName: r.businessName ?? '',
         city: r.city ?? '',
         flagshipUrl: r.flagshipUrl ?? '',
+        programmeUrl: r.programmeUrl ?? '',
       })
     }
     return out
@@ -715,6 +723,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
             businessName: firstRowForPreview.businessName ?? '',
             city: firstRowForPreview.city ?? '',
             flagshipUrl: firstRowForPreview.flagshipUrl ?? '',
+            programmeUrl: firstRowForPreview.programmeUrl ?? '',
             ownerEmail: firstRowForPreview.ownerEmail?.trim() ?? '',
           },
         }),
@@ -1129,6 +1138,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               <span className="font-mono">{'{{businessName}}'}</span>,{' '}
               <span className="font-mono">{'{{city}}'}</span>,{' '}
               <span className="font-mono">{'{{flagshipUrl}}'}</span>,{' '}
+              <span className="font-mono">{'{{programmeUrl}}'}</span>,{' '}
               <span className="font-mono">{'{{to}}'}</span>.
             </p>
             <div>
@@ -1323,6 +1333,14 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                       Flagship link
                     </SortableTh>
                     <SortableTh
+                      k="programmeUrl"
+                      sort={sort}
+                      onSort={onSortColumn}
+                      className="max-w-[14rem]"
+                    >
+                      Programme link
+                    </SortableTh>
+                    <SortableTh
                       k="ownerEmail"
                       sort={sort}
                       onSort={onSortColumn}
@@ -1371,7 +1389,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                 <tbody>
                   {rows.length === 0 && selectedCity && !loadingRows && (
                     <tr>
-                      <td colSpan={22} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={23} className="px-4 py-8 text-center text-slate-500">
                         No stashpoints in this city.
                       </td>
                     </tr>
@@ -1400,6 +1418,17 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                           title={r.flagshipUrl}
                         >
                           {r.flagshipUrl}
+                        </a>
+                      </td>
+                      <td className="w-0 max-w-[14rem] min-w-0 overflow-hidden px-2 py-2 align-top">
+                        <a
+                          href={r.programmeUrl}
+                          className="block max-w-full truncate font-mono text-[11px] leading-snug text-primary underline"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={r.programmeUrl}
+                        >
+                          {r.programmeUrl}
                         </a>
                       </td>
                       <td className="min-w-[9rem] max-w-[14rem] truncate bg-white px-2 py-2 align-top">

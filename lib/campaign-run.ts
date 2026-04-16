@@ -81,6 +81,7 @@ export function parseCampaignPayload(
       businessName: typeof r.businessName === 'string' ? r.businessName : '',
       city: typeof r.city === 'string' ? r.city : '',
       flagshipUrl: typeof r.flagshipUrl === 'string' ? r.flagshipUrl : '',
+      programmeUrl: typeof r.programmeUrl === 'string' ? r.programmeUrl : '',
     })
   }
 

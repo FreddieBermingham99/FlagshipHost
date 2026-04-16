@@ -12,6 +12,7 @@ export type CampaignRecipient = {
   businessName: string
   city: string
   flagshipUrl: string
+  programmeUrl: string
 }
 
 function recipientVars(r: CampaignRecipient): CampaignMergeVars {
@@ -19,6 +20,7 @@ function recipientVars(r: CampaignRecipient): CampaignMergeVars {
     businessName: r.businessName,
     city: r.city,
     flagshipUrl: r.flagshipUrl,
+    programmeUrl: r.programmeUrl,
     to: r.to,
   }
 }

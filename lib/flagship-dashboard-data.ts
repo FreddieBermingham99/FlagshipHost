@@ -47,7 +47,7 @@ export async function fetchDashboardStashpointRows(
         r.stashpoint_id != null && String(r.stashpoint_id).trim() !== ''
           ? `/f/${String(r.stashpoint_id).trim()}`
           : `/flagship/${pkg.slug}`,
-      stashpointId: r.stashpoint_id,
+      stashpointId: String(r.stashpoint_id),
       latitude: r.latitude,
       longitude: r.longitude,
       weeklyOpenHours: r.weekly_open_hours,
