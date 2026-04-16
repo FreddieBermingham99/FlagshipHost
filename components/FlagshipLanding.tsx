@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import {
   ArrowRight,
   Star,
@@ -14,6 +14,7 @@ import {
   Mail,
   LinkIcon,
   TrendingUp,
+  Check,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -173,9 +174,11 @@ const translations = {
     
     // Signage
     signageTitle: 'What kind of signage can a Flagship Stashpoint get?',
-    signageDescription: "Choose the signage you'd like for {businessName}. Select all that apply - we can tailor them to your storefront.",
+    signageDescription: "Choose the signage you'd like for {businessName}. You must select at least 3 items — we can tailor them to your storefront.",
     signageSelected: '{count} item{plural} selected',
-    signagePrompt: "Select the signage items you're interested in",
+    signagePrompt: "Select at least 3 signage items you're interested in",
+    signageError: 'Please select at least 3 pieces of signage to submit your interest.',
+    formSignageWarning: 'Select at least 3 signage items to submit',
     
     // Case study
     caseTitle: 'How is the top Stashpoint in {city} performing?',
@@ -270,9 +273,11 @@ const translations = {
     
     // Signage
     signageTitle: 'Quel type de signalétique un Flagship Stashpoint peut-il obtenir ?',
-    signageDescription: "Choisissez la signalétique que vous souhaitez pour {businessName}. Sélectionnez tout ce qui s'applique - nous pouvons les adapter à votre vitrine.",
+    signageDescription: "Choisissez la signalétique que vous souhaitez pour {businessName}. Vous devez sélectionner au moins 3 articles — nous pouvons les adapter à votre vitrine.",
     signageSelected: '{count} article{plural} sélectionné{plural}',
-    signagePrompt: "Sélectionnez les articles de signalétique qui vous intéressent",
+    signagePrompt: "Sélectionnez au moins 3 articles de signalétique qui vous intéressent",
+    signageError: 'Veuillez sélectionner au moins 3 éléments de signalétique pour envoyer votre demande.',
+    formSignageWarning: 'Sélectionnez au moins 3 articles de signalétique pour envoyer',
     
     // Case study
     caseTitle: 'Comment se comporte le meilleur Stashpoint à {city} ?',
@@ -367,9 +372,11 @@ const translations = {
     
     // Signage
     signageTitle: '¿Qué tipo de señalización puedes obtener como Flagship Stashpoint?',
-    signageDescription: 'Elige la señalización que te gustaría para {businessName}. Selecciona todas las que apliquen - podemos adaptarlas a tu tienda.',
+    signageDescription: 'Elige la señalización que te gustaría para {businessName}. Debes seleccionar al menos 3 artículos — podemos adaptarlos a tu tienda.',
     signageSelected: '{count} artículo{plural} seleccionado{plural}',
-    signagePrompt: 'Selecciona los artículos de señalización que te interesan',
+    signagePrompt: 'Selecciona al menos 3 artículos de señalización que te interesen',
+    signageError: 'Selecciona al menos 3 artículos de señalética para enviar tu solicitud.',
+    formSignageWarning: 'Selecciona al menos 3 artículos de señalética para enviar',
     
     // Case study
     caseTitle: '¿Cómo está funcionando el mejor Stashpoint en {city}?',
@@ -464,9 +471,11 @@ const translations = {
 
     // Signage
     signageTitle: 'Welche Beschilderung erhält ein Flagship-Stashpoint?',
-    signageDescription: 'Wählen Sie die Beschilderung für {businessName}. Wählen Sie alles aus, was passt – wir passen sie Ihrem Schaufenster an.',
+    signageDescription: 'Wählen Sie die Beschilderung für {businessName}. Sie müssen mindestens 3 Artikel auswählen – wir passen sie Ihrem Schaufenster an.',
     signageSelected: '{count} Artikel ausgewählt',
-    signagePrompt: 'Wählen Sie die Beschilderungsartikel aus, die Sie interessieren',
+    signagePrompt: 'Wählen Sie mindestens 3 Beschilderungsartikel aus, die Sie interessieren',
+    signageError: 'Bitte wählen Sie mindestens 3 Beschilderungsartikel, um Ihre Anfrage zu senden.',
+    formSignageWarning: 'Wählen Sie mindestens 3 Beschilderungsartikel zum Absenden',
 
     // Case study
     caseTitle: 'Wie schneidet der beste Stashpoint in {city} ab?',
@@ -561,9 +570,11 @@ const translations = {
 
     // Signage
     signageTitle: 'Che tipo di segnaletica può ottenere uno Stashpoint Flagship?',
-    signageDescription: 'Scegli la segnaletica che preferisci per {businessName}. Seleziona tutte le opzioni utili - possiamo adattarle al tuo locale.',
+    signageDescription: 'Scegli la segnaletica che preferisci per {businessName}. Devi selezionare almeno 3 articoli — possiamo adattarli al tuo locale.',
     signageSelected: '{count} articoli selezionati',
-    signagePrompt: 'Seleziona gli articoli di segnaletica che ti interessano',
+    signagePrompt: 'Seleziona almeno 3 articoli di segnaletica che ti interessano',
+    signageError: 'Seleziona almeno 3 articoli di segnaletica per inviare la tua richiesta.',
+    formSignageWarning: 'Seleziona almeno 3 articoli di segnaletica per inviare',
 
     // Case study
     caseTitle: 'Come sta andando il migliore Stashpoint a {city}?',
@@ -658,9 +669,11 @@ const translations = {
 
     // Signage
     signageTitle: 'Que tipo de sinalização pode obter um Stashpoint Flagship?',
-    signageDescription: 'Escolha a sinalização que pretende para {businessName}. Selecione tudo o que se aplica - podemos adaptá-la à sua loja.',
+    signageDescription: 'Escolha a sinalização que pretende para {businessName}. Deve selecionar pelo menos 3 itens — podemos adaptá-la à sua loja.',
     signageSelected: '{count} itens selecionados',
-    signagePrompt: 'Selecione os itens de sinalização do seu interesse',
+    signagePrompt: 'Selecione pelo menos 3 itens de sinalização do seu interesse',
+    signageError: 'Selecione pelo menos 3 itens de sinalização para enviar o seu pedido.',
+    formSignageWarning: 'Selecione pelo menos 3 itens de sinalização para enviar',
 
     // Case study
     caseTitle: 'Como está a correr o melhor Stashpoint em {city}?',
@@ -755,9 +768,11 @@ const translations = {
 
     // Signage
     signageTitle: 'Welke bewegwijzering krijgt een Flagship-Stashpoint?',
-    signageDescription: 'Kies de bewegwijzering voor {businessName}. Selecteer alles wat van toepassing is - we passen het aan je winkel aan.',
+    signageDescription: 'Kies de bewegwijzering voor {businessName}. Je moet minstens 3 items selecteren — we passen ze aan je winkel aan.',
     signageSelected: '{count} items geselecteerd',
-    signagePrompt: 'Selecteer de bewegwijzering die je interesseert',
+    signagePrompt: 'Selecteer minstens 3 bewegwijzeringsitems die je interesseren',
+    signageError: 'Selecteer minstens 3 bewegwijzeringsitems om je aanvraag te verzenden.',
+    formSignageWarning: 'Selecteer minstens 3 bewegwijzeringsitems om te verzenden',
 
     // Case study
     caseTitle: 'Hoe presteert de beste Stashpoint in {city}?',
@@ -815,6 +830,8 @@ const localeBundles: Record<SupportedLandingLocale, typeof translations.en> = {
 export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const [selectedSigns, setSelectedSigns] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showSignageError, setShowSignageError] = useState(false)
+  const signageRef = useRef<HTMLDivElement>(null)
 
   // Get translations based on locale (default to 'en')
   const locale = (props.locale || 'en') as SupportedLandingLocale
@@ -867,6 +884,13 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    if (selectedSigns.length < 3) {
+      e.preventDefault()
+      setShowSignageError(true)
+      signageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
+
     if (!p.formAction) {
       // Fallback to mailto if no webhook
       e.preventDefault()
@@ -1141,30 +1165,41 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
         </div>
       </div>
       {/* Signage Picker */}
-      <Section id="branding">
-        <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-            {t.signageTitle}
-            </h2>
-            <p className="mt-3 text-lg text-slate-700">
-              {translate('signageDescription', { businessName: p.businessName })}
-            </p>
+      <div ref={signageRef}>
+        <Section id="branding">
+          <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+              {t.signageTitle}
+              </h2>
+              <p className="mt-3 text-lg text-slate-700">
+                {translate('signageDescription', { businessName: p.businessName })}
+              </p>
+              {showSignageError && selectedSigns.length < 3 && (
+                <p className="mt-2 text-sm font-medium text-red-600">
+                  {t.signageError}
+                </p>
+              )}
+            </div>
+          <SignagePicker
+            items={signageItems}
+            storageKey={`flagship-signs-${p.businessName.toLowerCase().replace(/\s+/g, '-')}`}
+            onChange={(ids) => {
+              setSelectedSigns(ids)
+              if (ids.length >= 3) setShowSignageError(false)
+            }}
+          />
+          <div className="mt-6 text-center">
+            {selectedSigns.length > 0 ? (
+              <p className={`text-sm font-medium ${selectedSigns.length >= 3 ? 'text-green-600' : 'text-amber-600'}`}>
+                {translate('signageSelected', { count: selectedSigns.length.toString(), plural: selectedSigns.length !== 1 ? 's' : '' })}
+                {selectedSigns.length >= 3 && <Check className="ml-1 inline h-4 w-4" />}
+              </p>
+            ) : (
+              <p className="text-sm text-slate-600">{t.signagePrompt}</p>
+            )}
           </div>
-        <SignagePicker
-          items={signageItems}
-          storageKey={`flagship-signs-${p.businessName.toLowerCase().replace(/\s+/g, '-')}`}
-          onChange={setSelectedSigns}
-        />
-        <div className="mt-6 text-center text-sm text-slate-600">
-          {selectedSigns.length > 0 ? (
-            <p>
-              {translate('signageSelected', { count: selectedSigns.length.toString(), plural: selectedSigns.length !== 1 ? 's' : '' })}
-            </p>
-          ) : (
-            <p>{t.signagePrompt}</p>
-          )}
-        </div>
-      </Section>
+        </Section>
+      </div>
 
       {/* Case study / expected impact */}
       <Section id="case">
@@ -1265,10 +1300,15 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
               <input type="hidden" name="selectedSigns" value={JSON.stringify(selectedSigns)} />
               
               
-              <div className="flex items-center gap-3">
-                <Button type="submit" className="" disabled={isSubmitting}>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="submit" className="" disabled={isSubmitting || selectedSigns.length < 3}>
                   {isSubmitting ? t.formSubmitting : t.formSubmit}
                 </Button>
+                {selectedSigns.length < 3 && (
+                  <span className="text-xs text-amber-600">
+                    {t.formSignageWarning}
+                  </span>
+                )}
                 <span className="text-xs text-slate-500">
                   {t.formDisclaimer}
                 </span>

@@ -26,6 +26,8 @@ export async function GET(req: Request) {
     if (businessName) filters.business_name = businessName
     const city = url.searchParams.get('city')
     if (city) filters.city = city
+    const source = url.searchParams.get('source')
+    if (source) filters.source = source.split(',').filter(Boolean)
     const search = url.searchParams.get('search')
     if (search) filters.search = search
     const page = url.searchParams.get('page')

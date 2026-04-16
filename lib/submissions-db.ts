@@ -142,19 +142,31 @@ CREATE TABLE IF NOT EXISTS signage_orders (
   contact_name TEXT NOT NULL,
   contact_email TEXT NOT NULL,
   contact_phone TEXT,
-  address_line_1 TEXT NOT NULL,
+  address_line_1 TEXT,
   address_line_2 TEXT,
-  address_city TEXT NOT NULL,
+  address_city TEXT,
   address_region TEXT,
-  address_postcode TEXT NOT NULL,
-  address_country TEXT NOT NULL,
+  address_postcode TEXT,
+  address_country TEXT,
   notes TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   asset_generation_status TEXT NOT NULL DEFAULT 'not_started',
   fulfillment_status TEXT NOT NULL DEFAULT 'not_started',
+  source TEXT NOT NULL DEFAULT 'signage',
+  selected_tier TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Backfill columns / relax constraints for pre-existing deployments
+ALTER TABLE signage_orders ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'signage';
+ALTER TABLE signage_orders ADD COLUMN IF NOT EXISTS selected_tier TEXT;
+ALTER TABLE signage_orders ALTER COLUMN address_line_1 DROP NOT NULL;
+ALTER TABLE signage_orders ALTER COLUMN address_city DROP NOT NULL;
+ALTER TABLE signage_orders ALTER COLUMN address_postcode DROP NOT NULL;
+ALTER TABLE signage_orders ALTER COLUMN address_country DROP NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_signage_orders_source ON signage_orders (source);
 
 CREATE TABLE IF NOT EXISTS signage_order_items (
   id SERIAL PRIMARY KEY,
@@ -169,6 +181,13 @@ CREATE INDEX IF NOT EXISTS idx_signage_catalog_items_visible ON signage_catalog_
 CREATE INDEX IF NOT EXISTS idx_signage_catalog_item_options_item ON signage_catalog_item_options (item_id, is_visible, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_signage_orders_status ON signage_orders (status);
 CREATE INDEX IF NOT EXISTS idx_signage_orders_created ON signage_orders (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS short_link_cache (
+  long_url TEXT PRIMARY KEY,
+  short_url TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'tinyurl',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `
 
 let tableEnsured = false
@@ -399,6 +418,53 @@ export async function getDistinctCountries(): Promise<string[]> {
       'SELECT DISTINCT country FROM submissions WHERE country IS NOT NULL AND country != \'\' ORDER BY country'
     )
     return res.rows.map((r) => r.country)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Short-link cache (for URL shortener service results)
+// ---------------------------------------------------------------------------
+
+export async function getCachedShortLink(longUrl: string): Promise<string | null> {
+  if (!isSubmissionsDbConfigured()) return null
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<{ short_url: string }>(
+      'SELECT short_url FROM short_link_cache WHERE long_url = $1 LIMIT 1',
+      [longUrl]
+    )
+    return res.rows[0]?.short_url ?? null
+  })
+}
+
+export async function getCachedShortLinks(longUrls: string[]): Promise<Record<string, string>> {
+  if (!isSubmissionsDbConfigured() || longUrls.length === 0) return {}
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<{ long_url: string; short_url: string }>(
+      'SELECT long_url, short_url FROM short_link_cache WHERE long_url = ANY($1::text[])',
+      [longUrls]
+    )
+    const out: Record<string, string> = {}
+    for (const r of res.rows) out[r.long_url] = r.short_url
+    return out
+  })
+}
+
+export async function cacheShortLink(
+  longUrl: string,
+  shortUrl: string,
+  provider = 'tinyurl'
+): Promise<void> {
+  if (!isSubmissionsDbConfigured()) return
+  await ensureTable()
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO short_link_cache (long_url, short_url, provider)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (long_url) DO NOTHING`,
+      [longUrl, shortUrl, provider]
+    )
   })
 }
 
@@ -758,13 +824,15 @@ export type SignageOrderInsert = {
   contact_name: string
   contact_email: string
   contact_phone?: string | null
-  address_line_1: string
+  address_line_1?: string | null
   address_line_2?: string | null
-  address_city: string
+  address_city?: string | null
   address_region?: string | null
-  address_postcode: string
-  address_country: string
+  address_postcode?: string | null
+  address_country?: string | null
   notes?: string | null
+  source?: string | null
+  selected_tier?: string | null
   items: SignageOrderItemInsert[]
 }
 
@@ -777,16 +845,18 @@ export type SignageOrderRow = {
   contact_name: string
   contact_email: string
   contact_phone: string | null
-  address_line_1: string
+  address_line_1: string | null
   address_line_2: string | null
-  address_city: string
+  address_city: string | null
   address_region: string | null
-  address_postcode: string
-  address_country: string
+  address_postcode: string | null
+  address_country: string | null
   notes: string | null
   status: string
   asset_generation_status: string
   fulfillment_status: string
+  source: string
+  selected_tier: string | null
   created_at: string
   updated_at: string
 }
@@ -809,6 +879,7 @@ export type SignageOrderFilters = {
   stashpoint_id?: string
   business_name?: string
   city?: string
+  source?: string[]
   search?: string
   page?: number
   limit?: number
@@ -822,8 +893,9 @@ export async function createSignageOrder(data: SignageOrderInsert): Promise<Sign
       const orderRes = await c.query<SignageOrderRow>(
         `INSERT INTO signage_orders
          (stashpoint_id, business_name, city, country, contact_name, contact_email, contact_phone,
-          address_line_1, address_line_2, address_city, address_region, address_postcode, address_country, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          address_line_1, address_line_2, address_city, address_region, address_postcode, address_country,
+          notes, source, selected_tier)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING *`,
         [
           data.stashpoint_id ?? null,
@@ -833,13 +905,15 @@ export async function createSignageOrder(data: SignageOrderInsert): Promise<Sign
           data.contact_name,
           data.contact_email,
           data.contact_phone ?? null,
-          data.address_line_1,
+          data.address_line_1 ?? null,
           data.address_line_2 ?? null,
-          data.address_city,
+          data.address_city ?? null,
           data.address_region ?? null,
-          data.address_postcode,
-          data.address_country,
+          data.address_postcode ?? null,
+          data.address_country ?? null,
           data.notes ?? null,
+          data.source ?? 'signage',
+          data.selected_tier ?? null,
         ]
       )
       const order = orderRes.rows[0]
@@ -864,6 +938,144 @@ export async function createSignageOrder(data: SignageOrderInsert): Promise<Sign
 
       await c.query('COMMIT')
       return { ...order, items }
+    } catch (e) {
+      await c.query('ROLLBACK')
+      throw e
+    }
+  })
+}
+
+/**
+ * Creates a signage order OR merges items into the most recent OPEN order
+ * (status in 'pending' | 'accepted') for the same stashpoint_id.
+ *
+ * De-dup rules:
+ *  - If `data.stashpoint_id` is empty → no dedup key available → behaves like
+ *    `createSignageOrder`.
+ *  - If an open order exists, items that already appear on it (matched by
+ *    `catalog_item_id` when present, else by case-insensitive
+ *    `item_name_snapshot`) are skipped. New items are appended with qty 1.
+ *  - Order-level shipping/contact fields that are currently NULL on the
+ *    existing row are filled in from the new payload (best-effort enrichment;
+ *    existing non-null values are never overwritten).
+ *  - If the incoming `source` differs from the existing order's `source`,
+ *    the order's `source` becomes `'mixed'`.
+ *  - `updated_at` is bumped.
+ */
+export async function upsertSignageOrder(
+  data: SignageOrderInsert
+): Promise<SignageOrderWithItems> {
+  await ensureTable()
+  const stashpointId = (data.stashpoint_id ?? '').trim()
+  if (!stashpointId) {
+    return createSignageOrder(data)
+  }
+
+  return withClient(async (c) => {
+    await c.query('BEGIN')
+    try {
+      const existingRes = await c.query<SignageOrderRow>(
+        `SELECT * FROM signage_orders
+         WHERE stashpoint_id = $1
+           AND status IN ('pending', 'accepted')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [stashpointId]
+      )
+      const existing = existingRes.rows[0]
+
+      if (!existing) {
+        await c.query('ROLLBACK')
+        return createSignageOrder(data)
+      }
+
+      const existingItemsRes = await c.query<SignageOrderItemRow>(
+        'SELECT * FROM signage_order_items WHERE order_id = $1 ORDER BY id ASC',
+        [existing.id]
+      )
+      const existingItems = existingItemsRes.rows
+
+      const existingCatalogIds = new Set<number>()
+      const existingNames = new Set<string>()
+      for (const it of existingItems) {
+        if (it.catalog_item_id != null) existingCatalogIds.add(it.catalog_item_id)
+        existingNames.add(it.item_name_snapshot.trim().toLowerCase())
+      }
+
+      const newItems: SignageOrderItemRow[] = []
+      for (const item of data.items) {
+        const key = (item.item_name_snapshot ?? '').trim().toLowerCase()
+        if (!key) continue
+        const catalogId = item.catalog_item_id ?? null
+        const alreadyPresent =
+          (catalogId != null && existingCatalogIds.has(catalogId)) ||
+          existingNames.has(key)
+        if (alreadyPresent) continue
+
+        const inserted = await c.query<SignageOrderItemRow>(
+          `INSERT INTO signage_order_items
+           (order_id, catalog_item_id, item_name_snapshot, quantity, selected_options)
+           VALUES ($1, $2, $3, $4, $5::jsonb)
+           RETURNING *`,
+          [
+            existing.id,
+            catalogId,
+            item.item_name_snapshot,
+            Math.max(1, item.quantity ?? 1),
+            JSON.stringify(item.selected_options ?? {}),
+          ]
+        )
+        newItems.push(inserted.rows[0])
+        if (catalogId != null) existingCatalogIds.add(catalogId)
+        existingNames.add(key)
+      }
+
+      const mergedSource =
+        data.source && data.source !== existing.source ? 'mixed' : existing.source
+
+      // Backfill only null fields; never overwrite existing values.
+      const updateRes = await c.query<SignageOrderRow>(
+        `UPDATE signage_orders
+         SET business_name   = COALESCE(business_name, $2),
+             city            = COALESCE(city, $3),
+             country         = COALESCE(country, $4),
+             contact_name    = COALESCE(contact_name, $5),
+             contact_email   = COALESCE(contact_email, $6),
+             contact_phone   = COALESCE(contact_phone, $7),
+             address_line_1  = COALESCE(address_line_1, $8),
+             address_line_2  = COALESCE(address_line_2, $9),
+             address_city    = COALESCE(address_city, $10),
+             address_region  = COALESCE(address_region, $11),
+             address_postcode = COALESCE(address_postcode, $12),
+             address_country = COALESCE(address_country, $13),
+             selected_tier   = COALESCE(selected_tier, $14),
+             source          = $15,
+             updated_at      = now()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          existing.id,
+          data.business_name || null,
+          data.city ?? null,
+          data.country ?? null,
+          data.contact_name || null,
+          data.contact_email || null,
+          data.contact_phone ?? null,
+          data.address_line_1 ?? null,
+          data.address_line_2 ?? null,
+          data.address_city ?? null,
+          data.address_region ?? null,
+          data.address_postcode ?? null,
+          data.address_country ?? null,
+          data.selected_tier ?? null,
+          mergedSource,
+        ]
+      )
+
+      await c.query('COMMIT')
+      const updated = updateRes.rows[0]
+      const allItems = [...existingItems, ...newItems]
+      return { ...updated, items: allItems }
     } catch (e) {
       await c.query('ROLLBACK')
       throw e
@@ -897,6 +1109,11 @@ export async function listSignageOrders(
   if (filters.city) {
     conditions.push(`LOWER(city) = LOWER($${i})`)
     params.push(filters.city)
+    i++
+  }
+  if (filters.source && filters.source.length > 0) {
+    conditions.push(`source = ANY($${i}::text[])`)
+    params.push(filters.source)
     i++
   }
   if (filters.search) {

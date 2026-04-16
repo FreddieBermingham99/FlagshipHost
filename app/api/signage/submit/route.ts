@@ -1,4 +1,4 @@
-import { createSignageOrder, isSubmissionsDbConfigured } from '@/lib/submissions-db'
+import { isSubmissionsDbConfigured, upsertSignageOrder } from '@/lib/submissions-db'
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -29,7 +29,7 @@ export async function POST(req: Request): Promise<Response> {
       return new Response('At least one signage item is required', { status: 400 })
     }
 
-    const order = await createSignageOrder({
+    const order = await upsertSignageOrder({
       stashpoint_id: body.stashpointId ? String(body.stashpointId) : null,
       business_name: String(body.business_name ?? body.business ?? ''),
       city: body.city ? String(body.city) : null,
@@ -44,6 +44,7 @@ export async function POST(req: Request): Promise<Response> {
       address_postcode: String(body.address_postcode ?? ''),
       address_country: String(body.address_country ?? ''),
       notes: body.notes ? String(body.notes) : null,
+      source: 'signage',
       items,
     })
 

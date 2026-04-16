@@ -23,6 +23,8 @@ type Order = {
   contact_name: string
   contact_email: string
   status: string
+  source: string
+  selected_tier: string | null
   created_at: string
 }
 
@@ -34,12 +36,12 @@ type OrderItem = {
 }
 
 type OrderDetail = Order & {
-  address_line_1: string
+  address_line_1: string | null
   address_line_2: string | null
-  address_city: string
+  address_city: string | null
   address_region: string | null
-  address_postcode: string
-  address_country: string
+  address_postcode: string | null
+  address_country: string | null
   notes: string | null
   items: OrderItem[]
 }
@@ -50,6 +52,32 @@ type FiltersState = {
   city: string
   business_name: string
   stashpoint_id: string
+  source: string[]
+}
+
+const SOURCE_OPTIONS = [
+  { value: 'signage', label: 'Direct' },
+  { value: 'flagship', label: 'From flagship' },
+  { value: 'programme_pro', label: 'From programme (Pro)' },
+  { value: 'mixed', label: 'Mixed' },
+]
+
+function SourceBadge({ source }: { source: string }) {
+  const opt = SOURCE_OPTIONS.find((o) => o.value === source)
+  const label = opt?.label ?? source
+  const color =
+    source === 'flagship'
+      ? 'text-purple-700 bg-purple-50 border-purple-200'
+      : source === 'programme_pro'
+      ? 'text-indigo-700 bg-indigo-50 border-indigo-200'
+      : source === 'mixed'
+      ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+      : 'text-slate-600 bg-slate-50 border-slate-200'
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${color}`}>
+      {label}
+    </span>
+  )
 }
 
 const STATUS_OPTIONS = [
@@ -111,6 +139,7 @@ export default function SignageOrdersDashboard() {
     city: '',
     business_name: '',
     stashpoint_id: '',
+    source: [],
   })
 
   const fetchOrders = useCallback(async () => {
@@ -122,6 +151,7 @@ export default function SignageOrdersDashboard() {
       if (filters.city) params.set('city', filters.city)
       if (filters.business_name) params.set('business_name', filters.business_name)
       if (filters.stashpoint_id) params.set('stashpoint_id', filters.stashpoint_id)
+      if (filters.source.length) params.set('source', filters.source.join(','))
       params.set('page', String(page))
       params.set('limit', String(limit))
 
@@ -149,6 +179,16 @@ export default function SignageOrdersDashboard() {
     }))
   }
 
+  const toggleSourceFilter = (val: string) => {
+    setPage(1)
+    setFilters((f) => ({
+      ...f,
+      source: f.source.includes(val)
+        ? f.source.filter((x) => x !== val)
+        : [...f.source, val],
+    }))
+  }
+
   const clearFilters = () => {
     setPage(1)
     setFilters({
@@ -157,6 +197,7 @@ export default function SignageOrdersDashboard() {
       city: '',
       business_name: '',
       stashpoint_id: '',
+      source: [],
     })
   }
 
@@ -245,6 +286,18 @@ export default function SignageOrdersDashboard() {
               ))}
             </div>
 
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-slate-500">Source:</span>
+              {SOURCE_OPTIONS.map((opt) => (
+                <FilterPill
+                  key={opt.value}
+                  label={opt.label}
+                  active={filters.source.includes(opt.value)}
+                  onClick={() => toggleSourceFilter(opt.value)}
+                />
+              ))}
+            </div>
+
             {showFilters && (
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <Input
@@ -296,7 +349,10 @@ export default function SignageOrdersDashboard() {
               orders.map((o) => (
                 <div key={o.id} className="flex items-center justify-between rounded border bg-white px-3 py-2">
                   <div>
-                    <p className="text-sm font-medium">{o.business_name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium">{o.business_name}</p>
+                      <SourceBadge source={o.source} />
+                    </div>
                     <p className="text-xs text-slate-500">
                       #{o.id} • {o.city || '—'} • {o.contact_name}
                       {o.stashpoint_id && <> • SP {o.stashpoint_id}</>}
@@ -350,8 +406,27 @@ export default function SignageOrdersDashboard() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 text-sm">
+                <p>
+                  <span className="font-medium">Source:</span>{' '}
+                  <SourceBadge source={selected.source} />
+                  {selected.selected_tier && (
+                    <span className="ml-2 text-xs text-slate-500">Tier: {selected.selected_tier}</span>
+                  )}
+                </p>
                 <p><span className="font-medium">Contact:</span> {selected.contact_name} ({selected.contact_email})</p>
-                <p><span className="font-medium">Address:</span> {selected.address_line_1}{selected.address_line_2 ? `, ${selected.address_line_2}` : ''}, {selected.address_city}, {selected.address_region || ''} {selected.address_postcode}, {selected.address_country}</p>
+                <p>
+                  <span className="font-medium">Address:</span>{' '}
+                  {[
+                    selected.address_line_1,
+                    selected.address_line_2,
+                    selected.address_city,
+                    selected.address_region,
+                    selected.address_postcode,
+                    selected.address_country,
+                  ]
+                    .filter(Boolean)
+                    .join(', ') || <span className="italic text-slate-500">Not provided</span>}
+                </p>
                 {selected.notes && <p><span className="font-medium">Notes:</span> {selected.notes}</p>}
               </div>
 

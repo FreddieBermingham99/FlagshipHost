@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { Check, Minus, Plus, X } from 'lucide-react';
 
 export type SignItem = {
@@ -55,7 +56,7 @@ export default function SignagePicker({
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-      {items.map((item) => {
+      {items.map((item, index) => {
         const active = isSelected(item.id);
         return (
           <button
@@ -68,13 +69,19 @@ export default function SignagePicker({
               active ? "border-[#164087] ring-2 ring-[#164087]" : "border-slate-200 hover:border-[#164087]/50"
             ].join(" ")}
           >
-            {/* Using img intentionally for external demo assets. */}
-            <img
-              src={item.src}
-              alt={item.alt || item.name}
-              className="aspect-square w-full object-cover"
-              draggable={false}
-            />
+            <div className="relative aspect-square w-full bg-slate-100">
+              <Image
+                src={item.src}
+                alt={item.alt || item.name}
+                fill
+                sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 300px"
+                className="object-cover"
+                draggable={false}
+                // Load the first row eagerly, lazy-load the rest
+                priority={index < 3}
+                loading={index < 3 ? undefined : 'lazy'}
+              />
+            </div>
             {/* name tag */}
             <div className="absolute left-2 bottom-2 text-xs font-semibold px-2 py-1 rounded bg-white/90 text-slate-900">
               {item.name}
