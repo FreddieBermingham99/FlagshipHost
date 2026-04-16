@@ -102,7 +102,6 @@ export default function TierLanding(props: TierLandingProps) {
   const [selectedTier, setSelectedTier] = useState<Tier>(null)
   const [selectedSigns, setSelectedSigns] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitSuccess, setSubmitSuccess] = useState(false)
   const [showSignageError, setShowSignageError] = useState(false)
 
   const signageRef = useRef<HTMLDivElement>(null)
@@ -156,7 +155,6 @@ export default function TierLanding(props: TierLandingProps) {
     }
 
     setIsSubmitting(true)
-    const formEl = e.currentTarget as HTMLFormElement
 
     try {
       const formData = new FormData(e.currentTarget)
@@ -492,11 +490,6 @@ export default function TierLanding(props: TierLandingProps) {
                 <input type="hidden" name="selectedTier" value={selectedTier || ''} />
                 <input type="hidden" name="selectedSigns" value={JSON.stringify(selectedSigns)} />
 
-                {submitSuccess && (
-                  <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
-                    Thank you! Your interest has been submitted. We&apos;ll be in touch within one business day.
-                  </div>
-                )}
 
                 <div className="flex flex-col items-center gap-3 sm:flex-row">
                   <Button
@@ -507,8 +500,6 @@ export default function TierLanding(props: TierLandingProps) {
                   >
                     {isSubmitting
                       ? 'Submitting...'
-                      : submitSuccess
-                        ? '✓ Submitted'
                         : 'Submit interest'}
                   </Button>
                   {selectedTier === 'pro' && selectedSigns.length < 3 && (

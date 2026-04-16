@@ -416,7 +416,6 @@ const translations = {
 export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const [selectedSigns, setSelectedSigns] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitSuccess, setSubmitSuccess] = useState(false)
 
   // Get translations based on locale (default to 'en')
   const locale = (props.locale || 'en') as 'en' | 'fr' | 'es'
@@ -486,7 +485,6 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
     // Handle webhook submission
     e.preventDefault()
     setIsSubmitting(true)
-    const formEl = e.currentTarget as HTMLFormElement
 
     try {
       const formData = new FormData(e.currentTarget)
@@ -866,15 +864,10 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
               <input type="hidden" name="stashpointId" value={props.stashpointId || ''} />
               <input type="hidden" name="selectedSigns" value={JSON.stringify(selectedSigns)} />
               
-              {submitSuccess && (
-                <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
-                  {t.formSuccess}
-                </div>
-              )}
               
               <div className="flex items-center gap-3">
                 <Button type="submit" className="" disabled={isSubmitting}>
-                  {isSubmitting ? t.formSubmitting : submitSuccess ? t.formSubmitted : t.formSubmit}
+                  {isSubmitting ? t.formSubmitting : t.formSubmit}
                 </Button>
                 <span className="text-xs text-slate-500">
                   {t.formDisclaimer}
