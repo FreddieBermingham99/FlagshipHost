@@ -17,7 +17,6 @@ import {
   BadgeCheck,
   Phone,
   Mail,
-  LinkIcon,
   ChevronDown,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
