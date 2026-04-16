@@ -143,10 +143,8 @@ export async function findStashpointRowBySlug(
   slug: string
 ): Promise<StashpointBusinessMetricsRow | null> {
   const normalized = slug.trim().toLowerCase()
-  const rows = await listStashpointsFromDb()
-  return (
-    rows.find((r) => slugFromBusinessName(r.business_name) === normalized) ?? null
-  )
+  const rows = await listStashpointsFromDb({ businessNameSlug: normalized })
+  return rows[0] ?? null
 }
 
 export async function findStashpointRowById(

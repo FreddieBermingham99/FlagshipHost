@@ -500,19 +500,13 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
       })
 
       if (response.ok) {
-        setSubmitSuccess(true)
-        // Success popup
-        try {
-          window.alert(`Thank you for registering your interest in becoming a Flagship Stashpoint in ${p.city}!`)
-        } catch {}
-        // Safely reset the form
-        try {
-          formEl.reset()
-        } catch {}
-        // Auto-hide success banner after a short delay
-        setTimeout(() => {
-          setSubmitSuccess(false)
-        }, 3000)
+        const params = new URLSearchParams({
+          source: 'flagship',
+          business: p.businessName || '',
+          city: p.city || '',
+        })
+        window.location.href = `/thank-you?${params.toString()}`
+        return
       } else {
         const errorText = await response.text()
         console.error('Server error:', response.status, errorText)

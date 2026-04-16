@@ -169,12 +169,14 @@ export default function TierLanding(props: TierLandingProps) {
       })
 
       if (response.ok) {
-        setSubmitSuccess(true)
-        try {
-          window.alert(`Thank you for registering your interest in the ${selectedTier === 'pro' ? 'Pro' : 'Standard'} programme!`)
-        } catch {}
-        try { formEl.reset() } catch {}
-        setTimeout(() => setSubmitSuccess(false), 3000)
+        const params = new URLSearchParams({
+          source: 'programme',
+          tier: selectedTier || '',
+          business: p.businessName || '',
+          city: p.city || '',
+        })
+        window.location.href = `/thank-you?${params.toString()}`
+        return
       } else {
         const errorText = await response.text()
         throw new Error(`Submission failed: ${response.status} - ${errorText}`)

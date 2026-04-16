@@ -105,6 +105,8 @@ export type StashpointBusinessMetricsRow = {
 export type StashpointListingFilters = {
   /** Exact stashpoint id match (`s.id::text = $n`). */
   stashpointId?: string;
+  /** Match business_name after slug conversion (lowercase, non-alnum → hyphens, trim). */
+  businessNameSlug?: string;
   /** Case-insensitive city name match on `locations.name`. */
   cityName?: string;
   /** ILIKE on id, business name, or city; pass the literal search term — `%` wildcards are added here. */
@@ -136,6 +138,13 @@ export async function listStashpointsFromDb(
   if (filters.stashpointId !== undefined && filters.stashpointId !== "") {
     extra.push(`AND s.id::text = $${i}`);
     params.push(filters.stashpointId);
+    i += 1;
+  }
+  if (filters.businessNameSlug !== undefined && filters.businessNameSlug !== "") {
+    extra.push(
+      `AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(s.business_name), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')) = $${i}`
+    );
+    params.push(filters.businessNameSlug.trim().toLowerCase());
     i += 1;
   }
   if (filters.cityName !== undefined && filters.cityName !== "") {
