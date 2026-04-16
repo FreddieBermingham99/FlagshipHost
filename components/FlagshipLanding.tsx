@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import SignagePicker, { SignItem } from '@/components/SignagePicker'
+import type { SupportedLandingLocale } from '@/lib/landing-locale'
 
 export type FlagshipProps = {
   businessName: string
@@ -30,7 +31,7 @@ export type FlagshipProps = {
   formAction?: string
   stashpointId?: string
   googleMapsUrl?: string
-  locale?: string // 'en', 'fr', or 'es'
+  locale?: string // 'en', 'fr', 'es', 'de', 'it', 'pt', or 'nl'
   // Current performance stats
   websiteImpressions?: string
   gmapsImpressions?: string
@@ -411,6 +412,404 @@ const translations = {
     footerBenefits: 'Beneficios',
     footerResults: 'Resultados',
   },
+  de: {
+    // Header
+    programTitle: 'Stasher Flagship-Programm',
+    invitation: 'Einladung',
+    navBenefits: 'Vorteile',
+    navBranding: 'Branding',
+    navResults: 'Ergebnisse',
+    navRegister: 'Interesse bekunden',
+    ctaInterested: 'Ich bin interessiert',
+
+    // Hero
+    heroTitle: 'Erhalten Sie jeden Monat Hunderte neuer Stasher-Buchungen.',
+    heroSubtitle: 'Werden Sie ein Flagship-Stashpoint in',
+    heroDescription: 'Treten Sie dem Premium-Partnerprogramm von Stasher bei und machen Sie {businessName} zur ersten Adresse für Gepäckaufbewahrung in {city}.',
+
+    // Performance
+    currentPerformance: 'Aktuelle monatliche Leistung von {businessName}',
+    expectedPerformance: 'Erwartete monatliche Leistung als Flagship-Stashpoint',
+    websiteImpressions: 'Website-Impressionen',
+    gmapsImpressions: 'Google Maps-Impressionen',
+    bookings: 'Buchungen',
+    revenue: 'Umsatz',
+    expectedWebsite: 'Erwartete Website-Impressionen',
+    expectedGmaps: 'Erwartete Google Maps-Impressionen',
+    expectedBookings: 'Erwartete Buchungen',
+    expectedRevenue: 'Erwarteter Umsatz',
+
+    // How section
+    howTitle: 'Wie erreichen wir dieses Wachstum?',
+    googleAdsTitle: 'Von Stasher bezahlte Google Ads',
+    googleAdsDesc: 'Wir schalten Google Ads-Kampagnen für Reisende in {city} und leiten sie zu Ihrem Eintrag.',
+    brandedKitTitle: 'Marken-Store-Kit von Stasher',
+    brandedKitDesc: 'Außen- und Innenbeschilderung Ihrer Wahl, co-gebrandet mit {businessName}, um Vertrauen und Laufkundschaft zu stärken.',
+    trafficTitle: 'Mehr Website-Traffic',
+    trafficDesc: 'Wir verbessern die Sichtbarkeit Ihres Eintrags auf unserer Website und im Blog, um Traffic und Buchungen zu steigern.',
+    centerpieceTitle: 'Werden Sie das Herzstück von Stasher in {city}',
+    centerpieceDesc: 'Die Out-of-Home-Kampagnen von Stasher in {city} werden strategisch auf {businessName} ausgerichtet, um mehr Kunden zu Ihrem Standort zu bringen.',
+
+    // CTA buttons
+    registerInterest: 'Interesse bekunden',
+    seeAreaPotential: 'Potenzial Ihrer Region ansehen',
+
+    // Why section
+    whyTitle: 'Warum {businessName}?',
+    whyDescription: 'Ihre Lage in der Nähe von {landmark} macht Sie zum idealen Flagship-Kandidaten für Reisende in {city}. Wir bringen die Nachfrage direkt zu Ihrer Tür – über bezahlte Suche und bevorzugte Platzierung.',
+    whyBullet1: 'Steigern Sie Ihren Monatsumsatz um Hunderte von {currency}',
+    whyBullet2: 'Gehören Sie zu den Top-Stashpoints in {city}',
+    whyBullet3: 'Profitieren Sie von unseren Out-of-Home- und Paid-Kampagnen in {city}',
+    whyBullet4: 'Werden Sie das wichtigste Stashpoint-Ziel in Ihrer Region',
+
+    // Signage
+    signageTitle: 'Welche Beschilderung erhält ein Flagship-Stashpoint?',
+    signageDescription: 'Wählen Sie die Beschilderung für {businessName}. Wählen Sie alles aus, was passt – wir passen sie Ihrem Schaufenster an.',
+    signageSelected: '{count} Artikel ausgewählt',
+    signagePrompt: 'Wählen Sie die Beschilderungsartikel aus, die Sie interessieren',
+
+    // Case study
+    caseTitle: 'Wie schneidet der beste Stashpoint in {city} ab?',
+    caseDescription: 'In {city} hatte der aktuelle Top-Standort von Stasher:',
+    viewsYear: 'Aufrufe dieses Jahr',
+    bookingsYear: 'Buchungen dieses Jahr',
+    revenueYear: 'Umsatz dieses Jahr',
+
+    // Form
+    formTitle: 'Interesse bekunden',
+    formSubtitle: 'Bereit, der Flagship-Stashpoint in {city} zu werden? Lassen Sie uns reden.',
+    formName: 'Name',
+    formNamePlaceholder: 'Ihr Name',
+    formEmail: 'E-Mail',
+    formEmailPlaceholder: 'sie@beispiel.de',
+    formPhone: 'Telefon',
+    formPhonePlaceholder: '+49 30 12345678',
+    formQuestions: 'Haben Sie Fragen?',
+    formSubmitting: 'Wird gesendet...',
+    formSubmitted: '✓ Gesendet',
+    formSubmit: 'Interesse absenden',
+    formDisclaimer: 'Mit dem Absenden stimmen Sie zu, zum Flagship-Programm kontaktiert zu werden.',
+    formSuccess: '✓ Danke! Ihr Interesse wurde übermittelt. Wir melden uns innerhalb eines Werktags.',
+
+    // What you'll get
+    whatYouGet: 'Das erhalten Sie',
+    benefitPriority: 'Bevorzugte Platzierung und Stadt-Seiten-Feature',
+    benefitAds: 'Teil von Google Ads und Blog-Inhalten',
+    benefitSignage: 'Co-gebrandetes Beschilderungs-Kit (Schilder, Bodenmatten, Öffnungszeit-Aufkleber, Flaggen)',
+    benefitVisibility: 'Verbesserte Sichtbarkeit auf unserer Website',
+    benefitCenterpiece: 'Herzstück unserer Out-of-Home-Kampagnen in {city}',
+    benefitReviews: 'Mehr Google Maps-Bewertungen und Sichtbarkeit',
+    benefitSupport: 'Dedizierter Partner-Success-Support',
+    benefitInsights: 'Messung und monatliche Insights',
+    whyBecome: 'Warum Flagship werden?',
+
+    // Footer
+    footerCopyright: '© {year} Stasher • Flagship-Programm',
+    footerRegister: 'Interesse bekunden',
+    footerBenefits: 'Vorteile',
+    footerResults: 'Ergebnisse',
+  },
+  it: {
+    // Header
+    programTitle: 'Programma Flagship Stasher',
+    invitation: 'Invito',
+    navBenefits: 'Vantaggi',
+    navBranding: 'Branding',
+    navResults: 'Risultati',
+    navRegister: 'Manifesta interesse',
+    ctaInterested: 'Sono interessato',
+
+    // Hero
+    heroTitle: 'Ottieni centinaia di nuove prenotazioni Stasher ogni mese.',
+    heroSubtitle: 'Diventa uno Stashpoint Flagship a',
+    heroDescription: 'Unisciti al programma partner premium di Stasher e trasforma {businessName} nel punto di riferimento per il deposito bagagli a {city}.',
+
+    // Performance
+    currentPerformance: 'Performance mensile attuale di {businessName}',
+    expectedPerformance: 'Performance mensile attesa come Stashpoint Flagship',
+    websiteImpressions: 'Impressioni sul sito web',
+    gmapsImpressions: 'Impressioni su Google Maps',
+    bookings: 'Prenotazioni',
+    revenue: 'Ricavi',
+    expectedWebsite: 'Impressioni sul sito web attese',
+    expectedGmaps: 'Impressioni su Google Maps attese',
+    expectedBookings: 'Prenotazioni attese',
+    expectedRevenue: 'Ricavi attesi',
+
+    // How section
+    howTitle: 'Come otteniamo questa crescita?',
+    googleAdsTitle: 'Google Ads pagati da Stasher',
+    googleAdsDesc: 'Pagheremo campagne Google Ads rivolte ai viaggiatori di {city}, indirizzandoli al tuo annuncio.',
+    brandedKitTitle: 'Kit store brandizzato fornito da Stasher',
+    brandedKitDesc: 'Segnaletica interna ed esterna a tua scelta, co-brandizzata con {businessName} per aumentare fiducia e affluenza.',
+    trafficTitle: 'Più traffico sul sito web',
+    trafficDesc: 'Miglioreremo la visibilità del tuo annuncio sul nostro sito e blog per aumentare traffico e prenotazioni.',
+    centerpieceTitle: 'Diventa il fulcro di Stasher a {city}',
+    centerpieceDesc: 'Le campagne pubblicitarie out-of-home di Stasher a {city} saranno strategicamente incentrate su {businessName} per portare più clienti nel tuo locale.',
+
+    // CTA buttons
+    registerInterest: 'Manifesta il tuo interesse',
+    seeAreaPotential: 'Vedi il potenziale della tua zona',
+
+    // Why section
+    whyTitle: 'Perché {businessName}?',
+    whyDescription: 'La tua posizione vicino a {landmark} ti rende il candidato flagship ideale per i viaggiatori che arrivano a {city}. Porteremo domanda direttamente alla tua porta tramite ricerca a pagamento e posizionamento prioritario.',
+    whyBullet1: 'Aumenta i tuoi ricavi mensili di centinaia di {currency}',
+    whyBullet2: 'Posizionati tra i nostri migliori Stashpoint a {city}',
+    whyBullet3: 'Approfitta delle nostre campagne out-of-home e a pagamento a {city}',
+    whyBullet4: 'Diventa la principale destinazione Stashpoint della tua area',
+
+    // Signage
+    signageTitle: 'Che tipo di segnaletica può ottenere uno Stashpoint Flagship?',
+    signageDescription: 'Scegli la segnaletica che preferisci per {businessName}. Seleziona tutte le opzioni utili - possiamo adattarle al tuo locale.',
+    signageSelected: '{count} articoli selezionati',
+    signagePrompt: 'Seleziona gli articoli di segnaletica che ti interessano',
+
+    // Case study
+    caseTitle: 'Come sta andando il migliore Stashpoint a {city}?',
+    caseDescription: 'A {city}, la location principale attuale di Stasher ha avuto:',
+    viewsYear: 'Visualizzazioni quest\u2019anno',
+    bookingsYear: 'Prenotazioni quest\u2019anno',
+    revenueYear: 'Ricavi quest\u2019anno',
+
+    // Form
+    formTitle: 'Manifesta il tuo interesse',
+    formSubtitle: 'Pronto a diventare lo Stashpoint Flagship di {city}? Parliamone.',
+    formName: 'Nome',
+    formNamePlaceholder: 'Il tuo nome',
+    formEmail: 'Email',
+    formEmailPlaceholder: 'tu@esempio.it',
+    formPhone: 'Telefono',
+    formPhonePlaceholder: '+39 02 1234 5678',
+    formQuestions: 'Hai qualche domanda?',
+    formSubmitting: 'Invio in corso...',
+    formSubmitted: '✓ Inviato',
+    formSubmit: 'Invia interesse',
+    formDisclaimer: 'Inviando, accetti di essere contattato per il Programma Flagship.',
+    formSuccess: '✓ Grazie! Il tuo interesse è stato inviato. Ti contatteremo entro un giorno lavorativo.',
+
+    // What you'll get
+    whatYouGet: 'Cosa otterrai',
+    benefitPriority: 'Annuncio prioritario e in evidenza nella pagina della città',
+    benefitAds: 'Inclusione in Google Ads e contenuti del blog',
+    benefitSignage: 'Kit di segnaletica co-brandizzato (insegne, tappeti, adesivi orari, bandiere)',
+    benefitVisibility: 'Maggiore visibilità sul nostro sito',
+    benefitCenterpiece: 'Il fulcro delle nostre campagne pubblicitarie a {city}',
+    benefitReviews: 'Aumento di recensioni e visibilità su Google Maps',
+    benefitSupport: 'Supporto dedicato al successo del partner',
+    benefitInsights: 'Misurazioni e insight mensili',
+    whyBecome: 'Perché diventare flagship?',
+
+    // Footer
+    footerCopyright: '© {year} Stasher • Programma Flagship',
+    footerRegister: 'Manifesta interesse',
+    footerBenefits: 'Vantaggi',
+    footerResults: 'Risultati',
+  },
+  pt: {
+    // Header
+    programTitle: 'Programa Flagship Stasher',
+    invitation: 'Convite',
+    navBenefits: 'Benefícios',
+    navBranding: 'Marca',
+    navResults: 'Resultados',
+    navRegister: 'Registar interesse',
+    ctaInterested: 'Tenho interesse',
+
+    // Hero
+    heroTitle: 'Receba centenas de novas reservas Stasher todos os meses.',
+    heroSubtitle: 'Torne-se um Stashpoint Flagship em',
+    heroDescription: 'Junte-se ao programa parceiro premium da Stasher e faça de {businessName} o local de referência para depósito de bagagens em {city}.',
+
+    // Performance
+    currentPerformance: 'Desempenho mensal atual de {businessName}',
+    expectedPerformance: 'Desempenho mensal esperado como Stashpoint Flagship',
+    websiteImpressions: 'Impressões no site',
+    gmapsImpressions: 'Impressões no Google Maps',
+    bookings: 'Reservas',
+    revenue: 'Receita',
+    expectedWebsite: 'Impressões esperadas no site',
+    expectedGmaps: 'Impressões esperadas no Google Maps',
+    expectedBookings: 'Reservas esperadas',
+    expectedRevenue: 'Receita esperada',
+
+    // How section
+    howTitle: 'Como alcançamos este crescimento?',
+    googleAdsTitle: 'Google Ads pagos pela Stasher',
+    googleAdsDesc: 'Vamos pagar campanhas de Google Ads para viajantes em {city} e direcioná-los ao seu anúncio.',
+    brandedKitTitle: 'Kit de loja com marca fornecido pela Stasher',
+    brandedKitDesc: 'Sinalização exterior e interior à sua escolha, co-marcada com {businessName} para aumentar a confiança e as visitas.',
+    trafficTitle: 'Mais tráfego no site',
+    trafficDesc: 'Vamos melhorar a visibilidade do seu anúncio no nosso site e blog para aumentar tráfego e reservas.',
+    centerpieceTitle: 'Torne-se o centro da Stasher em {city}',
+    centerpieceDesc: 'As campanhas de publicidade out-of-home da Stasher em {city} serão estrategicamente centradas em {businessName} para atrair mais clientes à sua localização.',
+
+    // CTA buttons
+    registerInterest: 'Registe o seu interesse',
+    seeAreaPotential: 'Ver o potencial da sua zona',
+
+    // Why section
+    whyTitle: 'Porquê {businessName}?',
+    whyDescription: 'A sua localização perto de {landmark} torna-o o candidato flagship ideal para os viajantes que chegam a {city}. Vamos levar procura diretamente à sua porta através de pesquisa paga e colocação prioritária.',
+    whyBullet1: 'Aumente a sua receita mensal em centenas de {currency}',
+    whyBullet2: 'Classifique-se entre os melhores Stashpoints em {city}',
+    whyBullet3: 'Beneficie das nossas campanhas out-of-home e pagas em {city}',
+    whyBullet4: 'Torne-se o principal destino Stashpoint da sua área',
+
+    // Signage
+    signageTitle: 'Que tipo de sinalização pode obter um Stashpoint Flagship?',
+    signageDescription: 'Escolha a sinalização que pretende para {businessName}. Selecione tudo o que se aplica - podemos adaptá-la à sua loja.',
+    signageSelected: '{count} itens selecionados',
+    signagePrompt: 'Selecione os itens de sinalização do seu interesse',
+
+    // Case study
+    caseTitle: 'Como está a correr o melhor Stashpoint em {city}?',
+    caseDescription: 'Em {city}, a principal localização atual da Stasher teve:',
+    viewsYear: 'Visualizações este ano',
+    bookingsYear: 'Reservas este ano',
+    revenueYear: 'Receita este ano',
+
+    // Form
+    formTitle: 'Registe o seu interesse',
+    formSubtitle: 'Pronto para se tornar o Stashpoint Flagship de {city}? Vamos conversar.',
+    formName: 'Nome',
+    formNamePlaceholder: 'O seu nome',
+    formEmail: 'Email',
+    formEmailPlaceholder: 'voce@exemplo.com',
+    formPhone: 'Telefone',
+    formPhonePlaceholder: '+351 21 123 45 67',
+    formQuestions: 'Tem alguma questão?',
+    formSubmitting: 'A enviar...',
+    formSubmitted: '✓ Enviado',
+    formSubmit: 'Enviar interesse',
+    formDisclaimer: 'Ao enviar, aceita ser contactado sobre o Programa Flagship.',
+    formSuccess: '✓ Obrigado! O seu interesse foi submetido. Entraremos em contacto dentro de um dia útil.',
+
+    // What you'll get
+    whatYouGet: 'O que irá receber',
+    benefitPriority: 'Anúncio prioritário e destaque na página da cidade',
+    benefitAds: 'Inclusão em Google Ads e conteúdos do blog',
+    benefitSignage: 'Kit de sinalização co-marcado (placas, tapetes, autocolantes de horário, bandeiras)',
+    benefitVisibility: 'Maior visibilidade no nosso site',
+    benefitCenterpiece: 'O centro das nossas campanhas publicitárias em {city}',
+    benefitReviews: 'Mais avaliações e visibilidade no Google Maps',
+    benefitSupport: 'Suporte dedicado ao sucesso do parceiro',
+    benefitInsights: 'Medição e insights mensais',
+    whyBecome: 'Porquê tornar-se flagship?',
+
+    // Footer
+    footerCopyright: '© {year} Stasher • Programa Flagship',
+    footerRegister: 'Registar interesse',
+    footerBenefits: 'Benefícios',
+    footerResults: 'Resultados',
+  },
+  nl: {
+    // Header
+    programTitle: 'Stasher Flagship-programma',
+    invitation: 'Uitnodiging',
+    navBenefits: 'Voordelen',
+    navBranding: 'Branding',
+    navResults: 'Resultaten',
+    navRegister: 'Interesse aangeven',
+    ctaInterested: 'Ik ben geïnteresseerd',
+
+    // Hero
+    heroTitle: 'Ontvang elke maand honderden nieuwe Stasher-boekingen.',
+    heroSubtitle: 'Word een Flagship-Stashpoint in',
+    heroDescription: 'Sluit je aan bij het premium partnerprogramma van Stasher en maak {businessName} hét adres voor bagageopslag in {city}.',
+
+    // Performance
+    currentPerformance: 'Huidige maandprestaties van {businessName}',
+    expectedPerformance: 'Verwachte maandprestaties als Flagship-Stashpoint',
+    websiteImpressions: 'Website-impressies',
+    gmapsImpressions: 'Google Maps-impressies',
+    bookings: 'Boekingen',
+    revenue: 'Omzet',
+    expectedWebsite: 'Verwachte website-impressies',
+    expectedGmaps: 'Verwachte Google Maps-impressies',
+    expectedBookings: 'Verwachte boekingen',
+    expectedRevenue: 'Verwachte omzet',
+
+    // How section
+    howTitle: 'Hoe bereiken we deze groei?',
+    googleAdsTitle: 'Google Ads betaald door Stasher',
+    googleAdsDesc: 'Wij betalen Google Ads-campagnes gericht op reizigers in {city} en sturen ze naar jouw vermelding.',
+    brandedKitTitle: 'Merkpakket voor je winkel van Stasher',
+    brandedKitDesc: 'Buiten- en binnenbewegwijzering naar keuze, co-branded met {businessName} om vertrouwen en aanloop te verhogen.',
+    trafficTitle: 'Meer websiteverkeer',
+    trafficDesc: 'We verbeteren de zichtbaarheid van je vermelding op onze website en blog om verkeer en boekingen te verhogen.',
+    centerpieceTitle: 'Word het middelpunt van Stasher in {city}',
+    centerpieceDesc: 'De out-of-home-campagnes van Stasher in {city} draaien strategisch om {businessName} om meer klanten naar je locatie te brengen.',
+
+    // CTA buttons
+    registerInterest: 'Geef je interesse aan',
+    seeAreaPotential: 'Bekijk het potentieel van je gebied',
+
+    // Why section
+    whyTitle: 'Waarom {businessName}?',
+    whyDescription: 'Je locatie nabij {landmark} maakt je de ideale flagship-kandidaat voor reizigers die in {city} aankomen. We brengen vraag rechtstreeks naar je deur via betaalde zoekresultaten en prioriteitsplaatsing.',
+    whyBullet1: 'Verhoog je maandomzet met honderden {currency}',
+    whyBullet2: 'Hoor bij onze top-Stashpoints in {city}',
+    whyBullet3: 'Profiteer van onze out-of-home- en betaalde campagnes in {city}',
+    whyBullet4: 'Word de belangrijkste Stashpoint-bestemming in je omgeving',
+
+    // Signage
+    signageTitle: 'Welke bewegwijzering krijgt een Flagship-Stashpoint?',
+    signageDescription: 'Kies de bewegwijzering voor {businessName}. Selecteer alles wat van toepassing is - we passen het aan je winkel aan.',
+    signageSelected: '{count} items geselecteerd',
+    signagePrompt: 'Selecteer de bewegwijzering die je interesseert',
+
+    // Case study
+    caseTitle: 'Hoe presteert de beste Stashpoint in {city}?',
+    caseDescription: 'In {city} heeft de huidige topvestiging van Stasher het volgende bereikt:',
+    viewsYear: 'Weergaven dit jaar',
+    bookingsYear: 'Boekingen dit jaar',
+    revenueYear: 'Omzet dit jaar',
+
+    // Form
+    formTitle: 'Geef je interesse aan',
+    formSubtitle: 'Klaar om de Flagship-Stashpoint van {city} te worden? Laten we praten.',
+    formName: 'Naam',
+    formNamePlaceholder: 'Je naam',
+    formEmail: 'E-mail',
+    formEmailPlaceholder: 'jij@voorbeeld.nl',
+    formPhone: 'Telefoon',
+    formPhonePlaceholder: '+31 20 123 4567',
+    formQuestions: 'Heb je vragen?',
+    formSubmitting: 'Bezig met verzenden...',
+    formSubmitted: '✓ Verzonden',
+    formSubmit: 'Interesse versturen',
+    formDisclaimer: 'Door te verzenden ga je akkoord om gecontacteerd te worden over het Flagship-programma.',
+    formSuccess: '✓ Bedankt! Je interesse is ingediend. We nemen binnen één werkdag contact op.',
+
+    // What you'll get
+    whatYouGet: 'Wat je krijgt',
+    benefitPriority: 'Prioriteitsvermelding en uitlichting op de stadspagina',
+    benefitAds: 'Opname in Google Ads en bloginhoud',
+    benefitSignage: 'Co-branded bewegwijzeringspakket (borden, vloermatten, openingsstickers, vlaggen)',
+    benefitVisibility: 'Verbeterde zichtbaarheid op onze website',
+    benefitCenterpiece: 'Het middelpunt van onze reclamecampagnes in {city}',
+    benefitReviews: 'Meer Google Maps-reviews en zichtbaarheid',
+    benefitSupport: 'Toegewijde partner-successupport',
+    benefitInsights: 'Meting en maandelijkse inzichten',
+    whyBecome: 'Waarom flagship worden?',
+
+    // Footer
+    footerCopyright: '© {year} Stasher • Flagship-programma',
+    footerRegister: 'Interesse aangeven',
+    footerBenefits: 'Voordelen',
+    footerResults: 'Resultaten',
+  },
+}
+
+const localeBundles: Record<SupportedLandingLocale, typeof translations.en> = {
+  en: translations.en,
+  fr: translations.fr,
+  es: translations.es,
+  de: translations.de,
+  it: translations.it,
+  pt: translations.pt,
+  nl: translations.nl,
 }
 
 export default function FlagshipStashpointLanding(props: FlagshipProps) {
@@ -418,8 +817,8 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Get translations based on locale (default to 'en')
-  const locale = (props.locale || 'en') as 'en' | 'fr' | 'es'
-  const t = translations[locale] || translations.en
+  const locale = (props.locale || 'en') as SupportedLandingLocale
+  const t = localeBundles[locale] || translations.en
   
   // Debug: Log locale to console
   console.log('Locale received:', props.locale, '| Using:', locale)
@@ -502,6 +901,7 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
           source: 'flagship',
           business: p.businessName || '',
           city: p.city || '',
+          locale,
         })
         window.location.href = `/thank-you?${params.toString()}`
         return

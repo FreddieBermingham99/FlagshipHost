@@ -88,6 +88,11 @@ export type StashpointBusinessMetricsRow = {
   owner_email: string | null;
   owner_phone: string | null;
   poi: string | null;
+  address: string | null;
+  postal_code: string | null;
+  country_code: string | null;
+  canonical_url: string | null;
+  website: string | null;
   latitude: number | string | null;
   longitude: number | string | null;
   views_last_30_days: number | null;
@@ -271,6 +276,10 @@ SELECT
     u.email                                  AS owner_email,
     u.phone_number                           AS owner_phone,
     s.location_name                          AS poi,
+    s.address                                AS address,
+    s.postal_code                            AS postal_code,
+    s.new_country_code                       AS country_code,
+    s.canonical_url                          AS canonical_url,
     s.latitude                               AS latitude,
     s.longitude                              AS longitude,
     s.views_last_30_days                     AS views_last_30_days,
@@ -280,7 +289,8 @@ SELECT
     s.capacity                               AS capacity,
     COALESCE(ohs.is_24_hour, FALSE)          AS is_24_hour,
     COALESCE(ohs.open_before_9am, FALSE)     AS open_before_9am,
-    COALESCE(ohs.open_past_9pm, FALSE)       AS open_past_9pm
+    COALESCE(ohs.open_past_9pm, FALSE)       AS open_past_9pm,
+    'https://stasher.com/luggage-storage' || s.canonical_url || '/stashpoints/' || s.id || '?&utm_source=countertop_sign&utm_medium=QR&utm_campaign=SignageShop' AS website
 
 FROM stashpoints s
 JOIN locations l
@@ -307,6 +317,7 @@ LEFT JOIN opening_hours_summary ohs
 
 WHERE s.deactivated_at IS NULL
   AND s.activated_at < CURRENT_DATE
+  AND s.new_type NOT LIKE '%locker%'
 ${extra.join("\n")}
 ORDER BY
     l.name,
@@ -324,6 +335,7 @@ FROM stashpoints s
 JOIN locations l ON l.id = s.new_nearest_city_id
 WHERE s.deactivated_at IS NULL
   AND s.activated_at < CURRENT_DATE
+  AND s.new_type NOT LIKE '%locker%'
 ORDER BY l.name
 `;
   const rows = await queryStasherDb<{ name: string }>(sql);

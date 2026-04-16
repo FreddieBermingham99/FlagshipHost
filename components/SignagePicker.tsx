@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Check, Plus, X } from 'lucide-react';
+import { Check, Minus, Plus, X } from 'lucide-react';
 
 export type SignItem = {
   id: string;        // stable ID (e.g. 'door-sign-a3')
@@ -15,9 +15,22 @@ type Props = {
   storageKey: string;
   initialSelected?: string[];
   onChange?: (selectedIds: string[]) => void;
+  quantityById?: Record<string, number>;
+  maxQuantityById?: Record<string, number>;
+  onIncreaseQuantity?: (id: string) => void;
+  onDecreaseQuantity?: (id: string) => void;
 };
 
-export default function SignagePicker({ items, storageKey, initialSelected = [], onChange }: Props) {
+export default function SignagePicker({
+  items,
+  storageKey,
+  initialSelected = [],
+  onChange,
+  quantityById,
+  maxQuantityById,
+  onIncreaseQuantity,
+  onDecreaseQuantity,
+}: Props) {
   const [selected, setSelected] = useState<string[]>(initialSelected);
 
   // Load persisted selection once on mount
@@ -91,6 +104,42 @@ export default function SignagePicker({ items, storageKey, initialSelected = [],
                 <span className="absolute top-2 right-2">
                   <X className="h-4 w-4" />
                 </span>
+                {onIncreaseQuantity && onDecreaseQuantity && (
+                  <div
+                    className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-white/95 p-1 text-slate-900"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 hover:bg-slate-100"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDecreaseQuantity(item.id)
+                      }}
+                      aria-label={`Decrease quantity for ${item.name}`}
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="min-w-[20px] text-center text-xs font-semibold">
+                      {Math.max(1, quantityById?.[item.id] ?? 1)}
+                    </span>
+                    <button
+                      type="button"
+                      className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 hover:bg-slate-100 disabled:opacity-50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onIncreaseQuantity(item.id)
+                      }}
+                      disabled={
+                        (quantityById?.[item.id] ?? 1) >=
+                        Math.max(1, maxQuantityById?.[item.id] ?? 1)
+                      }
+                      aria-label={`Increase quantity for ${item.name}`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </button>

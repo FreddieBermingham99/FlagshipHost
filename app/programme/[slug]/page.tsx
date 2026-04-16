@@ -5,6 +5,7 @@ import {
   getAllFlagshipSlugs,
   resolvePublicFlagshipOverrides,
 } from '@/lib/flagship-business'
+import { localeFromCountryCode, normalizeLandingLocale } from '@/lib/landing-locale'
 import { isStasherDbConfigured } from '@/lib/stasher-db'
 import { getBusinessBySlug, fetchSheetRows } from '@/lib/sheets'
 
@@ -36,6 +37,8 @@ export default async function ProgrammePage({ params }: PageProps) {
     if (!row) notFound()
 
     const overrides = await resolvePublicFlagshipOverrides(row.city)
+    const resolvedLocale =
+      normalizeLandingLocale(overrides.locale) ?? localeFromCountryCode(row.country_code)
 
     return (
       <TierLanding
@@ -48,7 +51,7 @@ export default async function ProgrammePage({ params }: PageProps) {
         }}
         formAction={overrides.formAction}
         stashpointId={String(row.stashpoint_id)}
-        locale={overrides.locale}
+        locale={resolvedLocale}
         currency={overrides.currency}
         ownerEmail={row.owner_email ?? undefined}
         ownerPhone={row.owner_phone ?? undefined}

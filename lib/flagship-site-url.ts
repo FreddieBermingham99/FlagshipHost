@@ -51,8 +51,28 @@ export function flagshipPublicUrl(slug: string, options?: FlagshipPublicUrlOptio
   return `${base}/flagship/${encodeURIComponent(s)}`
 }
 
-/** Programme (tier selection) page URL. Always uses `/programme/{slug}`. */
-export function programmePublicUrl(slug: string): string {
+export type ProgrammePublicUrlOptions = {
+  /**
+   * When set (DB mode), links use the short path `/p/{id}` instead of `/programme/{slug}`.
+   */
+  stashpointId?: number | string | null
+}
+
+/**
+ * Programme (tier selection) page URL.
+ * Prefers `/p/{stashpointId}` when an id is available; otherwise `/programme/{slug}`.
+ */
+export function programmePublicUrl(slug: string, options?: ProgrammePublicUrlOptions): string {
   const base = resolveFlagshipSiteBaseUrl()
+  const id = options?.stashpointId
+  if (id !== null && id !== undefined && String(id).trim() !== '') {
+    return `${base}/p/${encodeURIComponent(String(id).trim())}`
+  }
   return `${base}/programme/${encodeURIComponent(slug.trim())}`
+}
+
+/** Signage ordering page URL (`/s/{stashpointId}`). */
+export function signagePublicUrl(stashpointId: number | string): string {
+  const base = resolveFlagshipSiteBaseUrl()
+  return `${base}/s/${encodeURIComponent(String(stashpointId).trim())}`
 }

@@ -18,6 +18,7 @@ type TableRow = FlagshipDashboardOverrides &
     slug: string
     flagshipUrl: string
     programmeUrl: string
+    signageUrl: string
     relativePath: string
     businessName: string
     city: string
@@ -125,6 +126,7 @@ function downloadStashpointsCsv(rows: TableRow[], cityLabel: string | null): voi
     'Open past 21:00',
     'Flagship URL',
     'Programme URL',
+    'Signage URL',
     'Owner email',
     'Owner phone',
     'POI',
@@ -154,6 +156,7 @@ function downloadStashpointsCsv(rows: TableRow[], cityLabel: string | null): voi
       yn(r.openPast9pm),
       stringifyTableCell(r.flagshipUrl),
       stringifyTableCell(r.programmeUrl),
+      stringifyTableCell(r.signageUrl),
       stringifyTableCell(r.ownerEmail ?? ''),
       stringifyTableCell(r.ownerPhone ?? ''),
       stringifyTableCell(r.landmark ?? ''),
@@ -755,9 +758,35 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               Choose a city, set landing-page overrides, then review stashpoints and links.
             </p>
           </div>
-          <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={logout}>
-            Log out
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/dashboard/submissions"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Submissions
+            </a>
+            <a
+              href="/dashboard/signage/catalog"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Signage catalog
+            </a>
+            <a
+              href="/dashboard/signage/orders"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Signage orders
+            </a>
+            <a
+              href="/dashboard/signage/links"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Signage links
+            </a>
+            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={logout}>
+              Log out
+            </Button>
+          </div>
         </div>
         <div>
           <p className="mt-2 text-xs text-slate-500">
@@ -932,7 +961,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                 />
               </div>
               <div>
-                <Label htmlFor="locale">Locale (en / fr / es)</Label>
+                <Label htmlFor="locale">Locale (en / fr / es / de / it / pt / nl)</Label>
                 <Input
                   id="locale"
                   className="mt-1"

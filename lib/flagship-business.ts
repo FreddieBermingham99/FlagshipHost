@@ -4,8 +4,9 @@ import {
   type FlagshipDashboardOverrides,
 } from '@/lib/flagship-dashboard-defaults'
 import { loadPublishedCityOverridePayload } from '@/lib/flagship-city-overrides-db'
-import { flagshipPublicUrl, programmePublicUrl } from '@/lib/flagship-site-url'
+import { flagshipPublicUrl, programmePublicUrl, signagePublicUrl } from '@/lib/flagship-site-url'
 import { listStashpointsFromDb, type StashpointBusinessMetricsRow } from '@/lib/stasher-db'
+import { localeFromCountryCode, normalizeLandingLocale } from '@/lib/landing-locale'
 
 export type { FlagshipDashboardOverrides } from '@/lib/flagship-dashboard-defaults'
 export { flagshipPublicUrl, programmePublicUrl, resolveFlagshipSiteBaseUrl } from '@/lib/flagship-site-url'
@@ -26,6 +27,7 @@ export type FlagshipBusinessPackage = FlagshipProps & {
   slug: string
   flagshipUrl: string
   programmeUrl: string
+  signageUrl: string
 }
 
 /** Drops metadata used for emails / dashboard; pass the result to `FlagshipLanding`. */
@@ -33,11 +35,13 @@ export function toFlagshipLandingProps({
   slug: _omitSlug,
   flagshipUrl: _omitUrl,
   programmeUrl: _omitProgrammeUrl,
+  signageUrl: _omitSignageUrl,
   ...landing
 }: FlagshipBusinessPackage): FlagshipProps {
   void _omitSlug
   void _omitUrl
   void _omitProgrammeUrl
+  void _omitSignageUrl
   return landing
 }
 
@@ -99,10 +103,14 @@ export function buildFlagshipPropsFromMetrics(
   const hasContactOverride =
     overrides.contactEmail !== undefined || overrides.contactPhone !== undefined
 
+  const resolvedLocale =
+    normalizeLandingLocale(overrides.locale) ?? localeFromCountryCode(row.country_code)
+
   return {
     slug,
     flagshipUrl: flagshipPublicUrl(slug, { stashpointId: row.stashpoint_id }),
-    programmeUrl: programmePublicUrl(slug),
+    programmeUrl: programmePublicUrl(slug, { stashpointId: row.stashpoint_id }),
+    signageUrl: signagePublicUrl(row.stashpoint_id),
     businessName: row.business_name,
     city: row.city,
     landmark: row.poi ?? undefined,
@@ -117,7 +125,7 @@ export function buildFlagshipPropsFromMetrics(
       : {}),
     formAction: overrides.formAction,
     googleMapsUrl: overrides.googleMapsUrl,
-    locale: overrides.locale,
+    locale: resolvedLocale,
     currency: overrides.currency,
     websiteImpressions: viewsMissing ? undefined : formatCount(views),
     gmapsImpressions: viewsMissing ? undefined : formatCount(derived.gmapsImpressions),
