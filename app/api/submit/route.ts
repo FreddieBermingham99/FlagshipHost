@@ -41,8 +41,9 @@ export async function POST(req: Request): Promise<Response> {
       }
     }
 
-    // Still proxy to the upstream webhook if formAction is provided
-    if (formAction && typeof formAction === 'string') {
+    // Proxy to the upstream webhook for flagship submissions only
+    const source = String(data.source ?? 'flagship')
+    if (source !== 'programme' && formAction && typeof formAction === 'string') {
       const upstream = await fetch(formAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

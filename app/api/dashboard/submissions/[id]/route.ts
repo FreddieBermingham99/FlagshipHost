@@ -4,6 +4,7 @@ import {
   isSubmissionsDbConfigured,
   updateSubmissionStatus,
   getSubmissionById,
+  deleteSubmission,
 } from '@/lib/submissions-db'
 
 export const dynamic = 'force-dynamic'
@@ -77,6 +78,35 @@ export async function PATCH(
     console.error('[submissions/patch]', e)
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Failed to update' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const authErr = requireDashboardSessionApi()
+  if (authErr) return authErr
+
+  if (!isSubmissionsDbConfigured()) {
+    return NextResponse.json({ error: 'Submissions DB not configured' }, { status: 503 })
+  }
+
+  const id = parseInt(params.id, 10)
+  if (isNaN(id)) {
+    return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
+  }
+
+  try {
+    const deleted = await deleteSubmission(id)
+    if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch (e) {
+    console.error('[submissions/delete]', e)
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Failed to delete' },
       { status: 500 }
     )
   }

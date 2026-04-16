@@ -303,6 +303,14 @@ export async function getSubmissionById(id: number): Promise<SubmissionRow | nul
   })
 }
 
+export async function deleteSubmission(id: number): Promise<boolean> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query('DELETE FROM submissions WHERE id = $1', [id])
+    return (res.rowCount ?? 0) > 0
+  })
+}
+
 export async function getDistinctCities(): Promise<string[]> {
   await ensureTable()
   return withClient(async (c) => {

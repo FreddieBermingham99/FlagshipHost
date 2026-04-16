@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Settings,
   Save,
+  Trash2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -163,11 +164,13 @@ function FilterPill({
 function SubmissionDetail({
   submission,
   onStatusChange,
+  onDelete,
   onClose,
   requirements,
 }: {
   submission: Submission
   onStatusChange: (id: number, status: string) => void
+  onDelete: (id: number) => void
   onClose: () => void
   requirements: Requirements
 }) {
@@ -282,13 +285,26 @@ function SubmissionDetail({
             </div>
           )}
 
-          {/* Metadata */}
-          <div className="border-t pt-4">
+          {/* Metadata + delete */}
+          <div className="border-t pt-4 flex items-center justify-between">
             <p className="text-xs text-slate-400">
               Submitted {created.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at{' '}
               {created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
               {submission.status_notes && <> &bull; {submission.status_notes}</>}
             </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+              onClick={() => {
+                if (window.confirm(`Delete submission from ${submission.business_name}? This cannot be undone.`)) {
+                  onDelete(submission.id)
+                }
+              }}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -375,6 +391,18 @@ export default function SubmissionsDashboard() {
       if (selected?.id === id) setSelected(data.submission)
     } catch {
       alert('Failed to update status')
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    try {
+      const res = await fetch(`/api/dashboard/submissions/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete')
+      setSubmissions((prev) => prev.filter((s) => s.id !== id))
+      setTotal((t) => t - 1)
+      if (selected?.id === id) setSelected(null)
+    } catch {
+      alert('Failed to delete submission')
     }
   }
 
@@ -807,6 +835,7 @@ export default function SubmissionsDashboard() {
         <SubmissionDetail
           submission={selected}
           onStatusChange={handleStatusChange}
+          onDelete={handleDelete}
           onClose={() => setSelected(null)}
           requirements={requirements}
         />
