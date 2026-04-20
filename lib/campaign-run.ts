@@ -11,13 +11,23 @@ export type { CampaignRecipient }
 export const MAX_RECIPIENTS = 100
 export const MAX_SUBJECT_LEN = 998
 export const MAX_BODY_LEN = 500_000
-export const SEND_DELAY_MS = 75
+export const SEND_DELAY_MS = 10_000
 
 export type ParsedCampaign = {
   subject: string
   textBody: string
   htmlBody?: string
+  city?: string
   recipients: CampaignRecipient[]
+}
+
+export type CampaignSendHooks = {
+  mapRecipient?: (recipient: CampaignRecipient, index: number) => CampaignRecipient
+  onAfterSend?: (
+    recipient: CampaignRecipient,
+    index: number,
+    result: { ok: true } | { ok: false; error: string }
+  ) => Promise<void> | void
 }
 
 function isProbablyEmail(s: string): boolean {
@@ -35,6 +45,7 @@ export function parseCampaignPayload(
   const subject = typeof o.subject === 'string' ? o.subject : ''
   const textBody = typeof o.textBody === 'string' ? o.textBody : ''
   const htmlBody = typeof o.htmlBody === 'string' ? o.htmlBody : undefined
+  const city = typeof o.city === 'string' && o.city.trim() ? o.city.trim() : undefined
 
   if (!subject.trim()) return { ok: false, message: 'subject is required', status: 400 }
   if (!textBody.trim()) return { ok: false, message: 'textBody is required', status: 400 }
@@ -82,6 +93,7 @@ export function parseCampaignPayload(
       city: typeof r.city === 'string' ? r.city : '',
       flagshipUrl: typeof r.flagshipUrl === 'string' ? r.flagshipUrl : '',
       programmeUrl: typeof r.programmeUrl === 'string' ? r.programmeUrl : '',
+      stashpointId: typeof r.stashpointId === 'string' ? r.stashpointId : undefined,
     })
   }
 
@@ -89,14 +101,17 @@ export function parseCampaignPayload(
     return { ok: false, message: 'No valid unique recipients after validation', status: 400 }
   }
 
-  return { ok: true, data: { subject, textBody, htmlBody, recipients } }
+  return { ok: true, data: { subject, textBody, htmlBody, city, recipients } }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-export async function executeCampaignSend(data: ParsedCampaign): Promise<{
+export async function executeCampaignSend(
+  data: ParsedCampaign,
+  hooks?: CampaignSendHooks
+): Promise<{
   sent: number
   failed: { to: string; error: string }[]
 }> {
@@ -105,7 +120,7 @@ export async function executeCampaignSend(data: ParsedCampaign): Promise<{
   let sent = 0
 
   for (let i = 0; i < recipients.length; i++) {
-    const r = recipients[i]
+    const r = hooks?.mapRecipient ? hooks.mapRecipient(recipients[i], i) : recipients[i]
     const merged = mergeCampaignForRecipient(subject, textBody, htmlBody, r)
     const result = await sendCampaignEmail({
       to: r.to,
@@ -113,6 +128,9 @@ export async function executeCampaignSend(data: ParsedCampaign): Promise<{
       text: merged.text,
       html: merged.html,
     })
+    if (hooks?.onAfterSend) {
+      await hooks.onAfterSend(r, i, result)
+    }
     if (result.ok) {
       sent++
     } else {

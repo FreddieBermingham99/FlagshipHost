@@ -13,6 +13,7 @@ export type CampaignRecipient = {
   city: string
   flagshipUrl: string
   programmeUrl: string
+  stashpointId?: string
 }
 
 function recipientVars(r: CampaignRecipient): CampaignMergeVars {

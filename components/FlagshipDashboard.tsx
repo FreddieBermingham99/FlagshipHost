@@ -114,6 +114,13 @@ function sanitizeFilenamePart(s: string): string {
   return s.replace(/[^\w\-]+/g, '_').slice(0, 64) || 'export'
 }
 
+function rowSelectionKey(row: TableRow): string {
+  if (row.stashpointId !== null && row.stashpointId !== undefined) {
+    return `id:${String(row.stashpointId)}`
+  }
+  return `slug:${row.slug}|name:${row.businessName}|city:${row.city}`
+}
+
 function downloadStashpointsCsv(rows: TableRow[], cityLabel: string | null): void {
   const headers = [
     'Business',
@@ -431,6 +438,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
   const [campaignFailures, setCampaignFailures] = useState<{ to: string; error: string }[] | null>(
     null
   )
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set())
   const [testEmailTo, setTestEmailTo] = useState('freddie@citystasher.com')
   const [testEmailSending, setTestEmailSending] = useState(false)
   const [publishConfigured, setPublishConfigured] = useState<boolean | null>(null)
@@ -443,6 +451,16 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
     return [...rows].sort((a, b) => compareDashboardRows(a, b, sort.key, sort.dir))
   }, [rows, sort])
 
+  const sortedRowSelectionKeys = useMemo(
+    () => sortedRows.map((r) => rowSelectionKey(r)),
+    [sortedRows]
+  )
+
+  const allSortedRowsSelected =
+    sortedRowSelectionKeys.length > 0 &&
+    sortedRowSelectionKeys.every((k) => selectedRowKeys.has(k))
+  const selectedRowsCount = sortedRowSelectionKeys.filter((k) => selectedRowKeys.has(k)).length
+
   const emailRecipients = useMemo(() => {
     const out: {
       to: string
@@ -450,9 +468,11 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
       city: string
       flagshipUrl: string
       programmeUrl: string
+      stashpointId?: string
     }[] = []
     const seen = new Set<string>()
     for (const r of sortedRows) {
+      if (!selectedRowKeys.has(rowSelectionKey(r))) continue
       const to = r.ownerEmail?.trim()
       if (!to) continue
       const k = to.toLowerCase()
@@ -464,10 +484,14 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
         city: r.city ?? '',
         flagshipUrl: r.flagshipUrl ?? '',
         programmeUrl: r.programmeUrl ?? '',
+        stashpointId:
+          r.stashpointId !== null && r.stashpointId !== undefined
+            ? String(r.stashpointId)
+            : undefined,
       })
     }
     return out
-  }, [sortedRows])
+  }, [sortedRows, selectedRowKeys])
 
   const firstRowForPreview = sortedRows[0] ?? null
 
@@ -569,10 +593,13 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
         })
         const data = (await res.json()) as { rows?: TableRow[]; error?: string }
         if (!res.ok) throw new Error(data.error || 'Failed to load stashpoints')
-        setRows(data.rows ?? [])
+        const nextRows = data.rows ?? []
+        setRows(nextRows)
+        setSelectedRowKeys(new Set(nextRows.map((r) => rowSelectionKey(r))))
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load stashpoints')
         setRows([])
+        setSelectedRowKeys(new Set())
       } finally {
         setLoadingRows(false)
       }
@@ -603,6 +630,28 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
 
   const refreshTable = () => {
     if (selectedCity) void loadRows(selectedCity, form)
+  }
+
+  function toggleRowSelection(row: TableRow, checked: boolean) {
+    const key = rowSelectionKey(row)
+    setSelectedRowKeys((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
+
+  function toggleAllVisibleRows(checked: boolean) {
+    setSelectedRowKeys((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        for (const key of sortedRowSelectionKeys) next.add(key)
+      } else {
+        for (const key of sortedRowSelectionKeys) next.delete(key)
+      }
+      return next
+    })
   }
 
   async function publishLiveOverrides() {
@@ -668,6 +717,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
           subject: campaignSubject,
           textBody: campaignTextBody,
           htmlBody: campaignHtmlBody.trim() || undefined,
+          city: selectedCity ?? undefined,
           recipients: emailRecipients,
         }),
       })
@@ -764,6 +814,12 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
             >
               Submissions
+            </a>
+            <a
+              href="/dashboard/campaigns"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Campaigns
             </a>
             <a
               href="/dashboard/signage/catalog"
@@ -1156,8 +1212,8 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
           <CardHeader>
             <CardTitle className="text-lg">Email campaign</CardTitle>
             <p className="text-sm font-normal text-slate-600">
-              Sends one message per row that has an owner email in the <strong>current table</strong>{' '}
-              (after sorting; duplicates by address are skipped). Uses{' '}
+              Sends one message per checked stashpoint row that has an owner email in the{' '}
+              <strong>current table</strong> (after sorting; duplicates by address are skipped). Uses{' '}
               <span className="font-mono text-xs">POST /api/dashboard/campaign/send</span> and Resend.
             </p>
           </CardHeader>
@@ -1269,6 +1325,9 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               >
                 {campaignSending ? 'Sending…' : `Send to ${emailRecipients.length} recipient(s)`}
               </Button>
+              <span className="text-xs text-slate-500">
+                {selectedRowsCount} row(s) checked in current table view.
+              </span>
               {!selectedCity && (
                 <span className="text-xs text-slate-500">Select a city and load the table first.</span>
               )}
@@ -1324,6 +1383,22 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               <table className="w-full min-w-[1100px] border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200">
+                    <th
+                      scope="col"
+                      className="border-b bg-slate-100 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                    >
+                      <label className="inline-flex cursor-pointer items-center gap-1 text-[10px] normal-case">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                          checked={allSortedRowsSelected}
+                          onChange={(e) => toggleAllVisibleRows(e.target.checked)}
+                          disabled={sortedRows.length === 0}
+                          aria-label="Select all rows"
+                        />
+                        All
+                      </label>
+                    </th>
                     <SortableTh
                       k="businessName"
                       sort={sort}
@@ -1418,7 +1493,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                 <tbody>
                   {rows.length === 0 && selectedCity && !loadingRows && (
                     <tr>
-                      <td colSpan={23} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={24} className="px-4 py-8 text-center text-slate-500">
                         No stashpoints in this city.
                       </td>
                     </tr>
@@ -1428,6 +1503,15 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                       key={r.stashpointId != null ? String(r.stashpointId) : `${r.slug}-${r.businessName}`}
                       className="border-b border-slate-100"
                     >
+                      <td className="whitespace-nowrap px-2 py-2">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                          checked={selectedRowKeys.has(rowSelectionKey(r))}
+                          onChange={(e) => toggleRowSelection(r, e.target.checked)}
+                          aria-label={`Select ${r.businessName || 'stashpoint'}`}
+                        />
+                      </td>
                       <td className="sticky left-0 z-10 max-w-[140px] truncate bg-white px-2 py-2 font-medium">
                         {r.businessName}
                       </td>
