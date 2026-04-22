@@ -42,9 +42,15 @@ export async function POST(req: Request): Promise<Response> {
 
         const selectedTier = data.selectedTier ? String(data.selectedTier) : null
 
+        const stashpointsPayload =
+          typeof data.programmeStashpointsPayload === 'string'
+            ? data.programmeStashpointsPayload
+            : null
+
         const slots = await resolveProgrammeSubmitSlots({
           source,
           hostId,
+          stashpointsPayload,
           stashpointId: data.stashpointId ? String(data.stashpointId) : '',
           businessName,
           city,
@@ -133,27 +139,58 @@ export async function POST(req: Request): Promise<Response> {
   }
 }
 
+function parseProgrammeStashpointsPayload(raw: string | null): ProgrammeSubmitSlot[] | null {
+  if (!raw || !raw.trim()) return null
+  try {
+    const arr = JSON.parse(raw) as unknown
+    if (!Array.isArray(arr) || arr.length === 0) return null
+    const out: ProgrammeSubmitSlot[] = []
+    for (const x of arr) {
+      if (x === null || typeof x !== 'object') continue
+      const o = x as Record<string, unknown>
+      const stashpoint_id = String(o.stashpointId ?? o.stashpoint_id ?? '').trim()
+      const business_name = String(o.businessName ?? o.business_name ?? '').trim()
+      const city = String(o.city ?? '').trim()
+      const country = o.country != null && o.country !== '' ? String(o.country) : null
+      if (!stashpoint_id || !business_name) continue
+      out.push({ stashpoint_id, business_name, city, country })
+    }
+    return out.length > 0 ? out : null
+  } catch {
+    return null
+  }
+}
+
 async function resolveProgrammeSubmitSlots(args: {
   source: string
   hostId: string
+  /** JSON from the programme page (same as pills); used when Stasher DB is unavailable on this server or host id match fails. */
+  stashpointsPayload: string | null
   stashpointId: string
   businessName: string
   city: string
   country: string | null
 }): Promise<ProgrammeSubmitSlot[]> {
-  if (args.source === 'programme' && args.hostId && isStasherDbConfigured()) {
-    try {
-      const rows = await listStashpointsFromDb({ hostId: args.hostId })
-      if (rows.length > 0) {
-        return rows.map((r) => ({
-          stashpoint_id: String(r.stashpoint_id),
-          business_name: r.business_name,
-          city: r.city,
-          country: r.country_code != null ? String(r.country_code) : null,
-        }))
+  if (args.source === 'programme' && args.hostId) {
+    if (isStasherDbConfigured()) {
+      try {
+        const rows = await listStashpointsFromDb({ hostId: args.hostId })
+        if (rows.length > 0) {
+          return rows.map((r) => ({
+            stashpoint_id: String(r.stashpoint_id),
+            business_name: r.business_name,
+            city: r.city,
+            country: r.country_code != null ? String(r.country_code) : null,
+          }))
+        }
+      } catch (e) {
+        console.error('[submit] Could not expand programme submit by host (Stasher query)', e)
       }
-    } catch (e) {
-      console.error('[submit] Could not expand programme submit by host', e)
+    }
+
+    const fromPayload = parseProgrammeStashpointsPayload(args.stashpointsPayload)
+    if (fromPayload && fromPayload.length > 0) {
+      return fromPayload
     }
   }
 

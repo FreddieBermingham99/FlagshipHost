@@ -150,7 +150,8 @@ export async function listStashpointsFromDb(
     i += 1;
   }
   if (filters.hostId !== undefined && filters.hostId !== "") {
-    extra.push(`AND h.id::text = $${i}`);
+    // Trim + case-fold so UUID / text host ids match how clients send them.
+    extra.push(`AND lower(trim(h.id::text)) = lower(trim($${i}))`);
     params.push(filters.hostId);
     i += 1;
   }

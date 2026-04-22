@@ -995,6 +995,13 @@ export default function TierLanding(props: TierLandingProps) {
                 <input type="hidden" name="source" value="programme" />
                 <input type="hidden" name="stashpointId" value={props.stashpointId || ''} />
                 <input type="hidden" name="hostId" value={props.hostId || ''} />
+                {props.programmeStashpoints && props.programmeStashpoints.length > 0 && (
+                  <input
+                    type="hidden"
+                    name="programmeStashpointsPayload"
+                    value={JSON.stringify(props.programmeStashpoints)}
+                  />
+                )}
                 <input type="hidden" name="selectedTier" value={selectedTier || ''} />
                 <input type="hidden" name="selectedSigns" value={JSON.stringify(selectedSigns)} />
 
