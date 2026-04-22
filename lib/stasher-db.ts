@@ -435,6 +435,20 @@ export async function enrichStashpointRowsWithHostIds(
   }));
 }
 
+/** `hosts.common_name` for programme contact name autofill (read-only Stasher DB). */
+export async function fetchHostCommonName(hostId: string): Promise<string | null> {
+  const id = String(hostId).trim();
+  if (!id) return null;
+  const rows = await queryStasherDb<{ common_name: string | null }>(
+    `SELECT NULLIF(TRIM(COALESCE(h.common_name::text, '')), '') AS common_name
+     FROM hosts h
+     WHERE h.id::text = $1
+     LIMIT 1`,
+    [id]
+  );
+  return rows[0]?.common_name ?? null;
+}
+
 /** Cities that have at least one active stashpoint (for dashboard search). */
 export async function listDistinctCityNamesFromDb(): Promise<string[]> {
   const sql = `

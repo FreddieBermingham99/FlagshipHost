@@ -26,6 +26,8 @@ type Order = {
   source: string
   selected_tier: string | null
   created_at: string
+  host_id?: string | null
+  submission_batch_id?: string | null
 }
 
 type OrderItem = {
@@ -428,6 +430,12 @@ export default function SignageOrdersDashboard() {
                     .join(', ') || <span className="italic text-slate-500">Not provided</span>}
                 </p>
                 {selected.notes && <p><span className="font-medium">Notes:</span> {selected.notes}</p>}
+                {selected.submission_batch_id && (
+                  <p className="text-xs font-medium text-primary">
+                    Same partner programme submission as other stashpoints (batch{' '}
+                    {selected.submission_batch_id.slice(0, 8)}…)
+                  </p>
+                )}
               </div>
 
               <div>

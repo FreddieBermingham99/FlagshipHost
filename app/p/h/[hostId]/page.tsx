@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import TierLanding from '@/components/TierLanding'
-import { findPrimaryStashpointForProgrammeHost, resolvePublicFlagshipOverrides } from '@/lib/flagship-business'
+import { resolvePublicFlagshipOverrides } from '@/lib/flagship-business'
+import { loadProgrammeHostBundle } from '@/lib/programme-tier-landing-server'
 import { localeFromCountryCode, normalizeLandingLocale } from '@/lib/landing-locale'
 import { isStasherDbConfigured } from '@/lib/stasher-db'
 
@@ -21,11 +22,12 @@ export default async function ProgrammeHostShortLinkPage({ params }: PageProps) 
     notFound()
   }
 
-  const row = await findPrimaryStashpointForProgrammeHost(raw)
-  if (!row) {
+  const bundle = await loadProgrammeHostBundle(raw)
+  if (!bundle) {
     notFound()
   }
 
+  const row = bundle.primary
   const overrides = await resolvePublicFlagshipOverrides(row.city)
   const resolvedLocale =
     normalizeLandingLocale(overrides.locale) ?? localeFromCountryCode(row.country_code)
@@ -41,6 +43,9 @@ export default async function ProgrammeHostShortLinkPage({ params }: PageProps) 
       }}
       formAction={overrides.formAction}
       stashpointId={String(row.stashpoint_id)}
+      hostId={bundle.hostId}
+      hostDisplayName={bundle.hostDisplayName}
+      programmeStashpoints={bundle.programmeStashpoints}
       locale={resolvedLocale}
       currency={overrides.currency}
       ownerEmail={row.owner_email ?? undefined}

@@ -93,6 +93,10 @@ CREATE INDEX IF NOT EXISTS idx_submissions_city ON submissions (LOWER(city));
 CREATE INDEX IF NOT EXISTS idx_submissions_business ON submissions (LOWER(business_name));
 CREATE INDEX IF NOT EXISTS idx_submissions_created ON submissions (created_at DESC);
 
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS host_id TEXT;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submission_batch_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_submissions_batch ON submissions (submission_batch_id);
+
 CREATE TABLE IF NOT EXISTS programme_settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL,
@@ -161,6 +165,9 @@ CREATE TABLE IF NOT EXISTS signage_orders (
 -- Backfill columns / relax constraints for pre-existing deployments
 ALTER TABLE signage_orders ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'signage';
 ALTER TABLE signage_orders ADD COLUMN IF NOT EXISTS selected_tier TEXT;
+ALTER TABLE signage_orders ADD COLUMN IF NOT EXISTS host_id TEXT;
+ALTER TABLE signage_orders ADD COLUMN IF NOT EXISTS submission_batch_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_signage_orders_batch ON signage_orders (submission_batch_id);
 ALTER TABLE signage_orders ALTER COLUMN address_line_1 DROP NOT NULL;
 ALTER TABLE signage_orders ALTER COLUMN address_city DROP NOT NULL;
 ALTER TABLE signage_orders ALTER COLUMN address_postcode DROP NOT NULL;
@@ -222,6 +229,8 @@ export type SubmissionRow = {
   status_notes: string | null
   created_at: string
   updated_at: string
+  host_id: string | null
+  submission_batch_id: string | null
 }
 
 export type SubmissionInsert = {
@@ -237,6 +246,8 @@ export type SubmissionInsert = {
   notes?: string | null
   selected_tier?: string | null
   selected_signs?: string[]
+  host_id?: string | null
+  submission_batch_id?: string | null
 }
 
 export type SubmissionFilters = {
@@ -261,8 +272,8 @@ export async function insertSubmission(data: SubmissionInsert): Promise<Submissi
   const row = await withClient(async (c) => {
     const res = await c.query<SubmissionRow>(
       `INSERT INTO submissions
-        (source, stashpoint_id, business_name, city, country, name, role, email, phone, notes, selected_tier, selected_signs)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+        (source, stashpoint_id, business_name, city, country, name, role, email, phone, notes, selected_tier, selected_signs, host_id, submission_batch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)
        RETURNING *`,
       [
         data.source,
@@ -277,6 +288,8 @@ export async function insertSubmission(data: SubmissionInsert): Promise<Submissi
         data.notes ?? null,
         data.selected_tier ?? null,
         JSON.stringify(data.selected_signs ?? []),
+        data.host_id ?? null,
+        data.submission_batch_id ?? null,
       ]
     )
     return res.rows[0]
@@ -833,6 +846,8 @@ export type SignageOrderInsert = {
   notes?: string | null
   source?: string | null
   selected_tier?: string | null
+  host_id?: string | null
+  submission_batch_id?: string | null
   items: SignageOrderItemInsert[]
 }
 
@@ -859,6 +874,8 @@ export type SignageOrderRow = {
   selected_tier: string | null
   created_at: string
   updated_at: string
+  host_id: string | null
+  submission_batch_id: string | null
 }
 
 export type SignageOrderItemRow = {
@@ -894,8 +911,8 @@ export async function createSignageOrder(data: SignageOrderInsert): Promise<Sign
         `INSERT INTO signage_orders
          (stashpoint_id, business_name, city, country, contact_name, contact_email, contact_phone,
           address_line_1, address_line_2, address_city, address_region, address_postcode, address_country,
-          notes, source, selected_tier)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          notes, source, selected_tier, host_id, submission_batch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING *`,
         [
           data.stashpoint_id ?? null,
@@ -914,6 +931,8 @@ export async function createSignageOrder(data: SignageOrderInsert): Promise<Sign
           data.notes ?? null,
           data.source ?? 'signage',
           data.selected_tier ?? null,
+          data.host_id ?? null,
+          data.submission_batch_id ?? null,
         ]
       )
       const order = orderRes.rows[0]

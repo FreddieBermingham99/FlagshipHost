@@ -23,11 +23,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import SignagePicker, { SignItem } from '@/components/SignagePicker'
 import {
   normalizeLandingLocale,
   type SupportedLandingLocale,
 } from '@/lib/landing-locale'
+import type { ProgrammeStashpointSummary } from '@/lib/programme-tier-types'
+
+export type { ProgrammeStashpointSummary } from '@/lib/programme-tier-types'
 
 export type TierLandingProps = {
   businessName: string
@@ -36,6 +40,12 @@ export type TierLandingProps = {
   contact?: { email?: string; phone?: string }
   formAction?: string
   stashpointId?: string
+  /** Stasher host id — server expands one programme submit into one row per active stashpoint. */
+  hostId?: string
+  /** `hosts.common_name` — default value for the contact name field. */
+  hostDisplayName?: string
+  /** When provided, business names render as pills (from DB); submit still uses server-side expansion by `hostId`. */
+  programmeStashpoints?: ProgrammeStashpointSummary[]
   locale?: SupportedLandingLocale | string
   currency?: string
   ownerEmail?: string
@@ -149,6 +159,8 @@ const tierTranslations = {
     formRole: 'Role',
     formRolePlaceholder: 'Owner / Manager',
     formBusiness: 'Business name',
+    formCityMultiHint:
+      'City and country are taken from each listing when you submit — edit them in your Stasher dashboard if needed.',
     formCity: 'City',
     formEmail: 'Email',
     formEmailPlaceholder: 'you@example.com',
@@ -207,6 +219,8 @@ const tierTranslations = {
     formRole: 'R\u00f4le',
     formRolePlaceholder: 'Propri\u00e9taire / Manager',
     formBusiness: 'Nom de l\u2019entreprise',
+    formCityMultiHint:
+      'La ville et le pays proviennent de chaque annonce lors de l\u2019envoi \u2014 modifiez-les dans votre tableau de bord Stasher si besoin.',
     formCity: 'Ville',
     formEmail: 'Email',
     formEmailPlaceholder: 'vous@exemple.com',
@@ -265,6 +279,8 @@ const tierTranslations = {
     formRole: 'Rol',
     formRolePlaceholder: 'Due\u00f1o / Gerente',
     formBusiness: 'Nombre del negocio',
+    formCityMultiHint:
+      'La ciudad y el pa\u00eds se toman de cada anuncio al enviar; ed\u00edtalos en tu panel de Stasher si hace falta.',
     formCity: 'Ciudad',
     formEmail: 'Email',
     formEmailPlaceholder: 'tu@ejemplo.com',
@@ -323,6 +339,8 @@ const tierTranslations = {
     formRole: 'Rolle',
     formRolePlaceholder: 'Inhaber / Manager',
     formBusiness: 'Unternehmensname',
+    formCityMultiHint:
+      'Stadt und Land werden pro Eintrag beim Absenden \u00fcbernommen \u2014 bei Bedarf im Stasher-Dashboard anpassen.',
     formCity: 'Stadt',
     formEmail: 'E-Mail',
     formEmailPlaceholder: 'sie@beispiel.de',
@@ -381,6 +399,8 @@ const tierTranslations = {
     formRole: 'Ruolo',
     formRolePlaceholder: 'Titolare / Manager',
     formBusiness: 'Nome dell\u2019attivit\u00e0',
+    formCityMultiHint:
+      'Citt\u00e0 e paese sono presi da ogni annuncio all\u2019invio; modificali nel dashboard Stasher se necessario.',
     formCity: 'Citt\u00e0',
     formEmail: 'Email',
     formEmailPlaceholder: 'tu@esempio.it',
@@ -439,6 +459,8 @@ const tierTranslations = {
     formRole: 'Fun\u00e7\u00e3o',
     formRolePlaceholder: 'Propriet\u00e1rio / Gerente',
     formBusiness: 'Nome do neg\u00f3cio',
+    formCityMultiHint:
+      'Cidade e pa\u00eds v\u00eam de cada an\u00fancio ao enviar; edite no painel Stasher se precisar.',
     formCity: 'Cidade',
     formEmail: 'Email',
     formEmailPlaceholder: 'voce@exemplo.com',
@@ -497,6 +519,8 @@ const tierTranslations = {
     formRole: 'Rol',
     formRolePlaceholder: 'Eigenaar / Manager',
     formBusiness: 'Bedrijfsnaam',
+    formCityMultiHint:
+      'Stad en land worden per vermelding bij verzenden overgenomen; pas ze zo nodig aan in je Stasher-dashboard.',
     formCity: 'Stad',
     formEmail: 'E-mail',
     formEmailPlaceholder: 'jij@voorbeeld.nl',
@@ -550,6 +574,11 @@ export default function TierLanding(props: TierLandingProps) {
     ownerEmail: props.ownerEmail,
     ownerPhone: props.ownerPhone,
   }
+
+  const locPills = props.programmeStashpoints
+  const multiLoc = Boolean(locPills && locPills.length > 1)
+  const firstBiz = locPills?.[0]?.businessName ?? p.businessName
+  const firstCity = locPills?.[0]?.city ?? p.city
 
   const localeKey: SupportedLandingLocale = normalizeLandingLocale(props.locale) ?? 'en'
   const bundle = tierLocaleBundles[localeKey] ?? tierLocaleBundles.en
@@ -893,7 +922,13 @@ export default function TierLanding(props: TierLandingProps) {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="text-sm font-medium">{t('formName')}</label>
-                    <Input name="name" required placeholder={t('formNamePlaceholder')} className="mt-1" />
+                    <Input
+                      name="name"
+                      required
+                      placeholder={t('formNamePlaceholder')}
+                      defaultValue={props.hostDisplayName ?? ''}
+                      className="mt-1"
+                    />
                   </div>
                   <div>
                     <label className="text-sm font-medium">{t('formRole')}</label>
@@ -903,11 +938,43 @@ export default function TierLanding(props: TierLandingProps) {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="text-sm font-medium">{t('formBusiness')}</label>
-                    <Input name="business" defaultValue={p.businessName} required className="mt-1" />
+                    {locPills && locPills.length > 0 ? (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          {locPills.slice(0, 3).map((sp) => (
+                            <span
+                              key={sp.stashpointId}
+                              className={cn(
+                                'inline-flex max-w-[220px] items-center truncate rounded-full border border-slate-200',
+                                'bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm'
+                              )}
+                              title={`${sp.businessName} — ${sp.city}`}
+                            >
+                              {sp.businessName}
+                            </span>
+                          ))}
+                          {locPills.length > 3 && (
+                            <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary">
+                              +{locPills.length - 3}
+                            </span>
+                          )}
+                        </div>
+                        <input type="hidden" name="business" value={firstBiz} />
+                      </div>
+                    ) : (
+                      <Input name="business" defaultValue={p.businessName} required className="mt-1" />
+                    )}
                   </div>
                   <div>
                     <label className="text-sm font-medium">{t('formCity')}</label>
-                    <Input name="city" defaultValue={p.city} required className="mt-1" />
+                    {multiLoc ? (
+                      <div className="mt-1 space-y-2">
+                        <p className="text-sm text-slate-600">{t('formCityMultiHint')}</p>
+                        <input type="hidden" name="city" value={firstCity} />
+                      </div>
+                    ) : (
+                      <Input name="city" defaultValue={p.city} required className="mt-1" />
+                    )}
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -927,6 +994,7 @@ export default function TierLanding(props: TierLandingProps) {
 
                 <input type="hidden" name="source" value="programme" />
                 <input type="hidden" name="stashpointId" value={props.stashpointId || ''} />
+                <input type="hidden" name="hostId" value={props.hostId || ''} />
                 <input type="hidden" name="selectedTier" value={selectedTier || ''} />
                 <input type="hidden" name="selectedSigns" value={JSON.stringify(selectedSigns)} />
 

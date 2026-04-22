@@ -46,6 +46,9 @@ type Submission = {
   status_notes: string | null
   created_at: string
   updated_at: string
+  host_id?: string | null
+  submission_batch_id?: string | null
+  batch_sibling_count?: number
   stashpoint_hours: number | null
   stashpoint_capacity: number | null
   meets_hours: boolean | null
@@ -187,6 +190,12 @@ function SubmissionDetail({
               {submission.city}{submission.country ? `, ${submission.country}` : ''} &bull; #{submission.id}
               {submission.stashpoint_id && <> &bull; SP {submission.stashpoint_id}</>}
             </p>
+            {(submission.batch_sibling_count ?? 0) > 1 && submission.submission_batch_id && (
+              <p className="mt-2 text-xs font-medium text-primary">
+                Part of one partner programme form — {submission.batch_sibling_count} stashpoints submitted
+                together (batch {submission.submission_batch_id.slice(0, 8)}…)
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             <X className="h-5 w-5" />
@@ -747,6 +756,11 @@ export default function SubmissionsDashboard() {
                           <p className="font-medium">{s.business_name}</p>
                           {s.stashpoint_id && (
                             <p className="text-xs text-slate-400">SP {s.stashpoint_id}</p>
+                          )}
+                          {(s.batch_sibling_count ?? 0) > 1 && (
+                            <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-primary">
+                              Multi-stashpoint ({s.batch_sibling_count})
+                            </p>
                           )}
                         </td>
                         <td className="px-4 py-3">

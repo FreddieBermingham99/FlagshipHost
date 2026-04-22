@@ -72,6 +72,8 @@ export type EnrichedSubmission = SubmissionRow & {
   stashpoint_capacity: number | null
   meets_hours: boolean | null
   meets_capacity: boolean | null
+  /** How many submissions share this `submission_batch_id` (1 if none / solo). */
+  batch_sibling_count: number
 }
 
 export async function GET(req: Request) {
@@ -136,10 +138,18 @@ export async function GET(req: Request) {
     ]
     const metrics = await fetchStashpointMetrics(spIds)
 
+    const batchCounts = new Map<string, number>()
+    for (const r of result.rows) {
+      const b = r.submission_batch_id
+      if (b) batchCounts.set(b, (batchCounts.get(b) ?? 0) + 1)
+    }
+
     const enriched: EnrichedSubmission[] = result.rows.map((row) => {
       const m = row.stashpoint_id ? metrics[row.stashpoint_id] : undefined
       const hours = m?.weekly_open_hours ?? null
       const cap = m?.capacity ?? null
+      const batchId = row.submission_batch_id
+      const batch_sibling_count = batchId ? batchCounts.get(batchId) ?? 1 : 1
 
       return {
         ...row,
@@ -153,6 +163,7 @@ export async function GET(req: Request) {
           requirements.min_capacity !== null && cap !== null
             ? cap >= requirements.min_capacity
             : null,
+        batch_sibling_count,
       }
     })
 

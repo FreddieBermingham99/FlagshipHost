@@ -175,19 +175,6 @@ export async function findStashpointRowById(
   return enriched
 }
 
-/** First active stashpoint for a host (for `/p/h/{hostId}` programme landing). */
-export async function findPrimaryStashpointForProgrammeHost(
-  hostId: string
-): Promise<(StashpointBusinessMetricsRow & { host_id: string | null }) | null> {
-  const trimmed = String(hostId).trim()
-  if (!trimmed) return null
-  const rows = await listStashpointsFromDb({ hostId: trimmed })
-  const row = rows[0] ?? null
-  if (!row) return null
-  const [enriched] = await enrichStashpointRowsWithHostIds([row])
-  return enriched
-}
-
 export async function getAllFlagshipSlugs(): Promise<string[]> {
   const rows = await listStashpointsFromDb()
   return [...new Set(rows.map((r) => slugFromBusinessName(r.business_name)))]

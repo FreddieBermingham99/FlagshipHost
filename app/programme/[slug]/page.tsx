@@ -6,6 +6,7 @@ import {
   resolvePublicFlagshipOverrides,
 } from '@/lib/flagship-business'
 import { localeFromCountryCode, normalizeLandingLocale } from '@/lib/landing-locale'
+import { loadProgrammeHostBundle } from '@/lib/programme-tier-landing-server'
 import { isStasherDbConfigured } from '@/lib/stasher-db'
 import { getBusinessBySlug, fetchSheetRows } from '@/lib/sheets'
 
@@ -40,6 +41,8 @@ export default async function ProgrammePage({ params }: PageProps) {
     const resolvedLocale =
       normalizeLandingLocale(overrides.locale) ?? localeFromCountryCode(row.country_code)
 
+    const hostBundle = row.host_id ? await loadProgrammeHostBundle(row.host_id) : null
+
     return (
       <TierLanding
         businessName={row.business_name}
@@ -51,6 +54,9 @@ export default async function ProgrammePage({ params }: PageProps) {
         }}
         formAction={overrides.formAction}
         stashpointId={String(row.stashpoint_id)}
+        hostId={hostBundle?.hostId}
+        hostDisplayName={hostBundle?.hostDisplayName}
+        programmeStashpoints={hostBundle?.programmeStashpoints}
         locale={resolvedLocale}
         currency={overrides.currency}
         ownerEmail={row.owner_email ?? undefined}
