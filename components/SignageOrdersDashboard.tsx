@@ -131,6 +131,7 @@ export default function SignageOrdersDashboard() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showFilters, setShowFilters] = useState(false)
   const [availableCities, setAvailableCities] = useState<string[]>([])
   const limit = 25
@@ -146,6 +147,7 @@ export default function SignageOrdersDashboard() {
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const params = new URLSearchParams()
       if (filters.search) params.set('search', filters.search)
@@ -158,10 +160,17 @@ export default function SignageOrdersDashboard() {
       params.set('limit', String(limit))
 
       const res = await fetch(`/api/dashboard/signage/orders?${params.toString()}`)
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`)
+      }
       setOrders(data.orders || [])
       setTotal(data.total || 0)
       if (data.filters?.cities) setAvailableCities(data.filters.cities)
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load orders')
+      setOrders([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
@@ -245,6 +254,10 @@ export default function SignageOrdersDashboard() {
             </a>
           </div>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{loadError}</div>
+        )}
 
         <Card>
           <CardContent className="pt-6">

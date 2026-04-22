@@ -197,12 +197,22 @@ CREATE TABLE IF NOT EXISTS short_link_cache (
 );
 `
 
+/** Run one statement at a time — pooled / serverless Postgres often rejects multi-statement `query()` strings. */
+function splitSqlStatements(sql: string): string[] {
+  return sql
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
 let tableEnsured = false
 
 async function ensureTable(): Promise<void> {
   if (tableEnsured) return
   await withClient(async (c) => {
-    await c.query(DDL)
+    for (const stmt of splitSqlStatements(DDL)) {
+      await c.query(stmt)
+    }
   })
   tableEnsured = true
 }
@@ -357,8 +367,10 @@ export async function listSubmissions(
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-  const limit = Math.min(filters.limit || 50, 200)
-  const page = Math.max(filters.page || 1, 1)
+  const rawLimit = filters.limit ?? 50
+  const rawPage = filters.page ?? 1
+  const limit = Math.min(Math.max(1, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50), 200)
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.floor(rawPage) : 1)
   const offset = (page - 1) * limit
 
   return withClient(async (c) => {
@@ -373,7 +385,27 @@ export async function listSubmissions(
       [...params, limit, offset]
     )
 
-    return { rows: dataRes.rows, total }
+    const rows = dataRes.rows.map((r) => {
+      let selected_signs: string[] = []
+      if (Array.isArray(r.selected_signs)) {
+        selected_signs = r.selected_signs
+      } else if (typeof r.selected_signs === 'string') {
+        try {
+          const p = JSON.parse(r.selected_signs) as unknown
+          if (Array.isArray(p)) selected_signs = p as string[]
+        } catch {
+          selected_signs = []
+        }
+      }
+      return {
+        ...r,
+        host_id: r.host_id ?? null,
+        submission_batch_id: r.submission_batch_id ?? null,
+        selected_signs,
+      }
+    })
+
+    return { rows, total }
   })
 }
 
@@ -1144,8 +1176,10 @@ export async function listSignageOrders(
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-  const limit = Math.min(filters.limit || 50, 200)
-  const page = Math.max(filters.page || 1, 1)
+  const rawLimit = filters.limit ?? 50
+  const rawPage = filters.page ?? 1
+  const limit = Math.min(Math.max(1, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50), 200)
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.floor(rawPage) : 1)
   const offset = (page - 1) * limit
 
   return withClient(async (c) => {
@@ -1158,7 +1192,12 @@ export async function listSignageOrders(
       `SELECT * FROM signage_orders ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
       [...params, limit, offset]
     )
-    return { rows: rowsRes.rows, total }
+    const rows = rowsRes.rows.map((r) => ({
+      ...r,
+      host_id: r.host_id ?? null,
+      submission_batch_id: r.submission_batch_id ?? null,
+    }))
+    return { rows, total }
   })
 }
 
