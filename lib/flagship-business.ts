@@ -5,7 +5,11 @@ import {
 } from '@/lib/flagship-dashboard-defaults'
 import { loadPublishedCityOverridePayload } from '@/lib/flagship-city-overrides-db'
 import { flagshipPublicUrl, programmePublicUrl, signagePublicUrl } from '@/lib/flagship-site-url'
-import { listStashpointsFromDb, type StashpointBusinessMetricsRow } from '@/lib/stasher-db'
+import {
+  enrichStashpointRowsWithHostIds,
+  listStashpointsFromDb,
+  type StashpointBusinessMetricsRow,
+} from '@/lib/stasher-db'
 import { localeFromCountryCode, normalizeLandingLocale } from '@/lib/landing-locale'
 
 export type { FlagshipDashboardOverrides } from '@/lib/flagship-dashboard-defaults'
@@ -109,7 +113,10 @@ export function buildFlagshipPropsFromMetrics(
   return {
     slug,
     flagshipUrl: flagshipPublicUrl(slug, { stashpointId: row.stashpoint_id }),
-    programmeUrl: programmePublicUrl(slug, { stashpointId: row.stashpoint_id }),
+    programmeUrl: programmePublicUrl(slug, {
+      hostId: row.host_id ?? undefined,
+      stashpointId: row.host_id ? undefined : row.stashpoint_id,
+    }),
     signageUrl: signagePublicUrl(row.stashpoint_id),
     businessName: row.business_name,
     city: row.city,
@@ -149,17 +156,36 @@ export function buildFlagshipPropsFromMetrics(
 
 export async function findStashpointRowBySlug(
   slug: string
-): Promise<StashpointBusinessMetricsRow | null> {
+): Promise<(StashpointBusinessMetricsRow & { host_id: string | null }) | null> {
   const normalized = slug.trim().toLowerCase()
   const rows = await listStashpointsFromDb({ businessNameSlug: normalized })
-  return rows[0] ?? null
+  const row = rows[0] ?? null
+  if (!row) return null
+  const [enriched] = await enrichStashpointRowsWithHostIds([row])
+  return enriched
 }
 
 export async function findStashpointRowById(
   id: number | string
-): Promise<StashpointBusinessMetricsRow | null> {
+): Promise<(StashpointBusinessMetricsRow & { host_id: string | null }) | null> {
   const rows = await listStashpointsFromDb({ stashpointId: String(id) })
-  return rows[0] ?? null
+  const row = rows[0] ?? null
+  if (!row) return null
+  const [enriched] = await enrichStashpointRowsWithHostIds([row])
+  return enriched
+}
+
+/** First active stashpoint for a host (for `/p/h/{hostId}` programme landing). */
+export async function findPrimaryStashpointForProgrammeHost(
+  hostId: string
+): Promise<(StashpointBusinessMetricsRow & { host_id: string | null }) | null> {
+  const trimmed = String(hostId).trim()
+  if (!trimmed) return null
+  const rows = await listStashpointsFromDb({ hostId: trimmed })
+  const row = rows[0] ?? null
+  if (!row) return null
+  const [enriched] = await enrichStashpointRowsWithHostIds([row])
+  return enriched
 }
 
 export async function getAllFlagshipSlugs(): Promise<string[]> {

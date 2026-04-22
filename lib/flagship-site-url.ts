@@ -53,20 +53,28 @@ export function flagshipPublicUrl(slug: string, options?: FlagshipPublicUrlOptio
 
 export type ProgrammePublicUrlOptions = {
   /**
-   * When set (DB mode), links use the short path `/p/{id}` instead of `/programme/{slug}`.
+   * When set (DB mode), links use `/p/h/{hostId}` so one owner email / host maps to one programme URL.
+   */
+  hostId?: number | string | null
+  /**
+   * Legacy stashpoint-based programme short link; used only when `hostId` is unavailable.
    */
   stashpointId?: number | string | null
 }
 
 /**
  * Programme (tier selection) page URL.
- * Prefers `/p/{stashpointId}` when an id is available; otherwise `/programme/{slug}`.
+ * Prefers `/p/h/{hostId}` when a host id is known; otherwise `/p/{stashpointId}`; otherwise slug path.
  */
 export function programmePublicUrl(slug: string, options?: ProgrammePublicUrlOptions): string {
   const base = resolveFlagshipSiteBaseUrl()
-  const id = options?.stashpointId
-  if (id !== null && id !== undefined && String(id).trim() !== '') {
-    return `${base}/p/${encodeURIComponent(String(id).trim())}`
+  const hostId = options?.hostId
+  if (hostId !== null && hostId !== undefined && String(hostId).trim() !== '') {
+    return `${base}/p/h/${encodeURIComponent(String(hostId).trim())}`
+  }
+  const spId = options?.stashpointId
+  if (spId !== null && spId !== undefined && String(spId).trim() !== '') {
+    return `${base}/p/${encodeURIComponent(String(spId).trim())}`
   }
   return `${base}/programme/${encodeURIComponent(slug.trim())}`
 }

@@ -1,30 +1,27 @@
 import { notFound } from 'next/navigation'
 import TierLanding from '@/components/TierLanding'
-import {
-  findStashpointRowById,
-  resolvePublicFlagshipOverrides,
-} from '@/lib/flagship-business'
+import { findPrimaryStashpointForProgrammeHost, resolvePublicFlagshipOverrides } from '@/lib/flagship-business'
 import { localeFromCountryCode, normalizeLandingLocale } from '@/lib/landing-locale'
 import { isStasherDbConfigured } from '@/lib/stasher-db'
 
 type PageProps = {
-  params: { id: string }
+  params: { hostId: string }
 }
 
 export const dynamic = 'force-dynamic'
 
-/** Legacy programme short URL: `/p/{stashpointId}` (prefer `/p/h/{hostId}` from dashboard). */
-export default async function ProgrammeShortLinkPage({ params }: PageProps) {
+/** Programme short URL by Stasher host id: `/p/h/{hostId}` (one link per host / owner). */
+export default async function ProgrammeHostShortLinkPage({ params }: PageProps) {
   if (!isStasherDbConfigured()) {
     notFound()
   }
 
-  const raw = decodeURIComponent(params.id?.trim() ?? '')
+  const raw = decodeURIComponent(params.hostId?.trim() ?? '')
   if (!/^[0-9a-fA-F-]{1,64}$/i.test(raw)) {
     notFound()
   }
 
-  const row = await findStashpointRowById(raw)
+  const row = await findPrimaryStashpointForProgrammeHost(raw)
   if (!row) {
     notFound()
   }

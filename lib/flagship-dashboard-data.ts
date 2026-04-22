@@ -11,6 +11,7 @@ import {
   type FlagshipDashboardOverrides,
 } from '@/lib/flagship-dashboard-defaults'
 import {
+  enrichStashpointRowsWithHostIds,
   listStashpointsFromDb,
   type StashpointListingFilters,
 } from '@/lib/stasher-db'
@@ -18,6 +19,8 @@ import {
 export type DashboardStashpointRow = FlagshipBusinessPackage & {
   relativePath: string
   stashpointId: number | string
+  /** Stasher `hosts.id` for programme short links / deduped programme URLs. */
+  hostId: string | null
   latitude: number | string | null
   longitude: number | string | null
   weeklyOpenHours: number | string | null
@@ -39,7 +42,8 @@ export async function fetchDashboardStashpointRows(
     cityName: trimmed,
     ...listingFilters,
   })
-  return raw.map((r) => {
+  const enriched = await enrichStashpointRowsWithHostIds(raw)
+  return enriched.map((r) => {
     const pkg = buildFlagshipPropsFromMetrics(r, overrides)
     return {
       ...pkg,
@@ -48,6 +52,7 @@ export async function fetchDashboardStashpointRows(
           ? `/f/${String(r.stashpoint_id).trim()}`
           : `/flagship/${pkg.slug}`,
       stashpointId: String(r.stashpoint_id),
+      hostId: r.host_id ?? null,
       latitude: r.latitude,
       longitude: r.longitude,
       weeklyOpenHours: r.weekly_open_hours,

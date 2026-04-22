@@ -52,11 +52,21 @@ export async function POST(req: Request) {
       listingFilters
     )
 
-    // Build shortening requests: each of the three URL types gets a branded
-    // alias of the form `<prefix>-<stashpointId>` so links stay human-readable.
+    // Build shortening requests: flagship + signage use stashpoint id; programme
+    // uses host id when present so one host maps to one short alias.
     const shortenInputs: ShortenRequest[] = []
     for (const r of rows) {
       const id = String(r.stashpointId ?? '').trim()
+      const hostHex = String(r.hostId ?? '')
+        .trim()
+        .replace(/-/g, '')
+        .toLowerCase()
+      const programmeAlias =
+        hostHex.length > 0
+          ? `${PROGRAMME_ALIAS_PREFIX}-h${hostHex.slice(0, 23)}`
+          : id
+            ? `${PROGRAMME_ALIAS_PREFIX}-${id}`
+            : undefined
       if (r.flagshipUrl) {
         shortenInputs.push({
           longUrl: r.flagshipUrl,
@@ -66,7 +76,7 @@ export async function POST(req: Request) {
       if (r.programmeUrl) {
         shortenInputs.push({
           longUrl: r.programmeUrl,
-          alias: id ? `${PROGRAMME_ALIAS_PREFIX}-${id}` : undefined,
+          alias: programmeAlias,
         })
       }
       if (r.signageUrl) {

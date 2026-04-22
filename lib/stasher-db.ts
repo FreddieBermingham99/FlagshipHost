@@ -83,6 +83,8 @@ export async function queryStasherDb<T extends QueryResultRow = QueryResultRow>(
 /** Row shape for the flagship stashpoint listing query (see `listStashpointsFromDb`). */
 export type StashpointBusinessMetricsRow = {
   stashpoint_id: number | string;
+  /** Set by `enrichStashpointRowsWithHostIds` for programme URLs (one host, many stashpoints). */
+  host_id?: string | null;
   business_name: string;
   city: string;
   owner_email: string | null;
@@ -128,6 +130,8 @@ export type StashpointListingFilters = {
   radiusMeters?: number;
   /** At least one centre required if `radiusMeters` is set. */
   radiusCenters?: Array<{ lat: number; lon: number }>;
+  /** Match `hosts.id` for programme-by-host flows; does not change the main SELECT. */
+  hostId?: string;
 };
 
 /**
@@ -143,6 +147,11 @@ export async function listStashpointsFromDb(
   if (filters.stashpointId !== undefined && filters.stashpointId !== "") {
     extra.push(`AND s.id::text = $${i}`);
     params.push(filters.stashpointId);
+    i += 1;
+  }
+  if (filters.hostId !== undefined && filters.hostId !== "") {
+    extra.push(`AND h.id::text = $${i}`);
+    params.push(filters.hostId);
     i += 1;
   }
   if (filters.businessNameSlug !== undefined && filters.businessNameSlug !== "") {
@@ -325,6 +334,105 @@ ORDER BY
 `;
 
   return queryStasherDb<StashpointBusinessMetricsRow>(sql, params);
+}
+
+/** One row per host with active non-locker stashpoints (separate from per-stashpoint metrics). */
+export type ProgrammeHostListingRow = {
+  host_id: string;
+  full_name: string;
+  email: string | null;
+  stashpoints_they_own: string[];
+};
+
+/**
+ * Host-centric listing for partner programme (one link per host / owner email).
+ * Intentionally separate from `listStashpointsFromDb` so flagship metrics SQL stays unchanged.
+ */
+export async function listProgrammeHostsFromDb(): Promise<ProgrammeHostListingRow[]> {
+  const sql = `
+WITH active_stashpoints AS (
+    SELECT
+        s.id,
+        s.host_id,
+        s.business_name,
+        s.location_name
+    FROM stashpoints s
+    WHERE s.deactivated_at IS NULL
+      AND s.activated_at < CURRENT_DATE
+      AND s.new_type NOT LIKE '%locker%'
+)
+
+SELECT
+    h.id::text AS host_id,
+    TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) AS full_name,
+    u.email AS email,
+    ARRAY_AGG(
+        DISTINCT COALESCE(s.business_name, s.location_name, s.id::text)
+        ORDER BY COALESCE(s.business_name, s.location_name, s.id::text)
+    ) AS stashpoints_they_own
+
+FROM hosts h
+JOIN users u
+    ON u.id = h.user_id
+JOIN active_stashpoints s
+    ON s.host_id = h.id
+
+GROUP BY
+    h.id,
+    u.first_name,
+    u.last_name,
+    u.email
+
+ORDER BY
+    full_name,
+    h.id
+`;
+  const rows = await queryStasherDb<ProgrammeHostListingRow>(sql);
+  return rows.map((r) => ({
+    ...r,
+    stashpoints_they_own: Array.isArray(r.stashpoints_they_own)
+      ? r.stashpoints_they_own
+      : r.stashpoints_they_own != null
+        ? [String(r.stashpoints_they_own)]
+        : [],
+  }));
+}
+
+/**
+ * Active stashpoint id → host id for programme URLs. Separate query from `listStashpointsFromDb`.
+ */
+export async function mapStashpointIdsToHostIds(
+  stashpointIds: string[]
+): Promise<Map<string, string>> {
+  const unique = [...new Set(stashpointIds.map((id) => String(id).trim()).filter(Boolean))];
+  const out = new Map<string, string>();
+  if (unique.length === 0) return out;
+
+  const sql = `
+SELECT s.id::text AS stashpoint_id, h.id::text AS host_id
+FROM stashpoints s
+JOIN hosts h ON h.id = s.host_id
+WHERE s.id::text = ANY($1::text[])
+  AND s.deactivated_at IS NULL
+  AND s.activated_at < CURRENT_DATE
+  AND s.new_type NOT LIKE '%locker%'
+`;
+  const rows = await queryStasherDb<{ stashpoint_id: string; host_id: string }>(sql, [unique]);
+  for (const r of rows) {
+    if (r.stashpoint_id && r.host_id) out.set(r.stashpoint_id, r.host_id);
+  }
+  return out;
+}
+
+export async function enrichStashpointRowsWithHostIds(
+  rows: StashpointBusinessMetricsRow[]
+): Promise<Array<StashpointBusinessMetricsRow & { host_id: string | null }>> {
+  if (rows.length === 0) return [];
+  const map = await mapStashpointIdsToHostIds(rows.map((r) => String(r.stashpoint_id)));
+  return rows.map((r) => ({
+    ...r,
+    host_id: map.get(String(r.stashpoint_id)) ?? null,
+  }));
 }
 
 /** Cities that have at least one active stashpoint (for dashboard search). */
