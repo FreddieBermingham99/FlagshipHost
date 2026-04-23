@@ -79,6 +79,19 @@ export function programmePublicUrl(slug: string, options?: ProgrammePublicUrlOpt
   return `${base}/programme/${encodeURIComponent(slug.trim())}`
 }
 
+/** Host id segment from a programme public URL (`…/p/h/{hostId}`), for TinyURL aliases when `hostId` isn’t on the row. */
+export function parseHostIdFromProgrammePublicUrl(url: string): string | null {
+  const s = String(url ?? '').trim()
+  if (!s) return null
+  const m = s.match(/\/p\/h\/([^/?#]+)/)
+  if (!m?.[1]) return null
+  try {
+    return decodeURIComponent(m[1]).trim() || null
+  } catch {
+    return m[1].trim() || null
+  }
+}
+
 /** Signage ordering page URL (`/s/{stashpointId}`). */
 export function signagePublicUrl(stashpointId: number | string): string {
   const base = resolveFlagshipSiteBaseUrl()
