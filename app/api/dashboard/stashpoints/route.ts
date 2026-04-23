@@ -8,15 +8,30 @@ import { isStasherDbConfigured } from '@/lib/stasher-db'
 
 export const dynamic = 'force-dynamic'
 
-const FLAGSHIP_ALIAS_PREFIX = (
-  process.env.FLAGSHIP_SHORT_LINK_ALIAS_PREFIX?.trim() || 'stasherflagship'
-).replace(/[^a-z0-9-]+/gi, '')
-const PROGRAMME_ALIAS_PREFIX = (
-  process.env.PROGRAMME_SHORT_LINK_ALIAS_PREFIX?.trim() || 'stasherprogramme'
-).replace(/[^a-z0-9-]+/gi, '')
-const SIGNAGE_ALIAS_PREFIX = (
-  process.env.SIGNAGE_SHORT_LINK_ALIAS_PREFIX?.trim() || 'stashersignage'
-).replace(/[^a-z0-9-]+/gi, '')
+/** TinyURL only supports one slug segment: `https://tinyurl.com/{prefix}-{id}`, not `/prefix/hostid`. */
+function sanitizeTinyAliasPrefix(raw: string | undefined, fallback: string): string {
+  const v = String(raw ?? '')
+    .trim()
+    .replace(/[^a-z0-9-]+/gi, '')
+    .replace(/^-+|-+$/g, '')
+  return (v || fallback).toLowerCase()
+}
+
+const DEFAULT_PREFIX_FLAGSHIP = 'flagship'
+const DEFAULT_PREFIX_PROGRAMME = 'prog'
+const DEFAULT_PREFIX_SIGNAGE = 'signage'
+
+function flagshipAliasPrefix(): string {
+  return sanitizeTinyAliasPrefix(process.env.FLAGSHIP_SHORT_LINK_ALIAS_PREFIX, DEFAULT_PREFIX_FLAGSHIP)
+}
+
+function programmeAliasPrefix(): string {
+  return sanitizeTinyAliasPrefix(process.env.PROGRAMME_SHORT_LINK_ALIAS_PREFIX, DEFAULT_PREFIX_PROGRAMME)
+}
+
+function signageAliasPrefix(): string {
+  return sanitizeTinyAliasPrefix(process.env.SIGNAGE_SHORT_LINK_ALIAS_PREFIX, DEFAULT_PREFIX_SIGNAGE)
+}
 
 type Body = {
   city?: string
@@ -65,8 +80,11 @@ export async function POST(req: Request) {
       if (hex && !programmeHostHexByUrl.has(u)) programmeHostHexByUrl.set(u, hex)
     }
 
-    // Build shortening requests: flagship + signage use stashpoint id; programme
-    // uses host id when present so one host maps to one short alias.
+    const pf = flagshipAliasPrefix()
+    const pp = programmeAliasPrefix()
+    const ps = signageAliasPrefix()
+
+    // Custom aliases: `{prefix}-{stashpointId}` / `{prefix}-{hostId}` for predictable campaign merge fields.
     const shortenInputs: ShortenRequest[] = []
     for (const r of rows) {
       const id = String(r.stashpointId ?? '').trim()
@@ -78,16 +96,20 @@ export async function POST(req: Request) {
           .replace(/-/g, '')
           .toLowerCase() ||
         (parseHostIdFromProgrammePublicUrl(progUrl) || '').replace(/-/g, '').toLowerCase()
+
+      const flagshipAlias = id.length >= 5 ? `${pf}-${id}` : undefined
       const programmeAlias =
-        hostHex.length > 0
-          ? `${PROGRAMME_ALIAS_PREFIX}-h${hostHex.slice(0, 23)}`
-          : id
-            ? `${PROGRAMME_ALIAS_PREFIX}-${id}`
+        hostHex.length >= 5
+          ? `${pp}-${hostHex.slice(0, 40)}`
+          : id.length >= 5
+            ? `${pp}-${id}`
             : undefined
+      const signageAlias = id.length >= 5 ? `${ps}-${id}` : undefined
+
       if (r.flagshipUrl) {
         shortenInputs.push({
           longUrl: r.flagshipUrl,
-          alias: id ? `${FLAGSHIP_ALIAS_PREFIX}-${id}` : undefined,
+          alias: flagshipAlias,
         })
       }
       if (r.programmeUrl) {
@@ -99,7 +121,7 @@ export async function POST(req: Request) {
       if (r.signageUrl) {
         shortenInputs.push({
           longUrl: r.signageUrl,
-          alias: id ? `${SIGNAGE_ALIAS_PREFIX}-${id}` : undefined,
+          alias: signageAlias,
         })
       }
     }
@@ -112,7 +134,21 @@ export async function POST(req: Request) {
       signageUrl: (r.signageUrl && shortMap[r.signageUrl]) || r.signageUrl,
     }))
 
-    return NextResponse.json({ rows: shortenedRows })
+    return NextResponse.json({
+      rows: shortenedRows,
+      tinyUrlCampaignPattern: {
+        flagship: `${pf}-{stashpointId}`,
+        programme: `${pp}-{hostId}`,
+        signage: `${ps}-{stashpointId}`,
+        prefixesResolved: {
+          flagship: pf,
+          programme: pp,
+          signage: ps,
+        },
+        note:
+          'TinyURL uses one slug after tinyurl.com/ — shape is PREFIX-ID (configure PREFIX via FLAGSHIP_SHORT_LINK_ALIAS_PREFIX, PROGRAMME_SHORT_LINK_ALIAS_PREFIX, SIGNAGE_SHORT_LINK_ALIAS_PREFIX). Programme uses host id (hyphens stripped); flagship and signage use stashpoint id.',
+      },
+    })
   } catch (e) {
     console.error('[dashboard/stashpoints]', e)
     return NextResponse.json(
