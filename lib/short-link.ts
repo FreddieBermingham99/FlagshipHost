@@ -77,6 +77,10 @@ async function fetchShortFromTinyUrl(longUrl: string, rawAlias?: string): Promis
       const retry = await callTinyUrl(longUrl, noDashes)
       if (retry) return retry
     }
+    // Deterministic campaign slugs: when a custom alias was requested but is
+    // unavailable (taken/rejected), do NOT silently switch to random TinyURL.
+    // Callers will fall back to the long URL instead.
+    return null
   }
 
   // Fall back to auto-generated slug.

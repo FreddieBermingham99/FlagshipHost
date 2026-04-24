@@ -19,15 +19,23 @@ export default function SignageLinksDashboard() {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const fetchRows = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const q = new URLSearchParams()
       if (search.trim()) q.set('search', search.trim())
       const res = await fetch(`/api/dashboard/signage/links?${q.toString()}`)
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`)
+      }
       setRows(data.rows || [])
+    } catch (e) {
+      setRows([])
+      setError(e instanceof Error ? e.message : 'Failed to load signage links')
     } finally {
       setLoading(false)
     }
@@ -70,6 +78,12 @@ export default function SignageLinksDashboard() {
             />
           </CardContent>
         </Card>
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            {error}
+          </div>
+        )}
 
         <Card>
           <CardHeader>

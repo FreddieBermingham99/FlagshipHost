@@ -25,11 +25,18 @@ export async function GET(req: Request) {
     const aliasPrefix = (process.env.SIGNAGE_SHORT_LINK_ALIAS_PREFIX?.trim() ||
       'stashersignage').replace(/[^a-z0-9-]+/gi, '')
 
-    const shortenInputs = rows.map((r) => ({
-      longUrl: signagePublicUrl(r.stashpoint_id),
-      alias: `${aliasPrefix}-${String(r.stashpoint_id)}`,
-    }))
-    const shortMap = await shortenManyUrls(shortenInputs)
+    // Keep links visible even if TinyURL is unavailable or aliasing fails.
+    let shortMap: Record<string, string> = {}
+    try {
+      const shortenInputs = rows.map((r) => ({
+        longUrl: signagePublicUrl(r.stashpoint_id),
+        alias: `${aliasPrefix}-${String(r.stashpoint_id)}`,
+      }))
+      shortMap = await shortenManyUrls(shortenInputs)
+    } catch (e) {
+      console.error('[dashboard/signage/links] TinyURL shortening failed, using long links', e)
+      shortMap = {}
+    }
 
     return NextResponse.json({
       rows: rows.map((r) => {
