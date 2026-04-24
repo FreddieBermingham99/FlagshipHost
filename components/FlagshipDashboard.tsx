@@ -1383,7 +1383,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               <CardTitle className="text-lg">Stashpoints</CardTitle>
               {!selectedCity && (
                 <p className="text-sm font-normal text-slate-600">
-                  Select a city from the list, or click "Load all cities", to load stashpoints.
+                  Select a city from the list, or click &quot;Load all cities&quot;, to load stashpoints.
                 </p>
               )}
             </div>
