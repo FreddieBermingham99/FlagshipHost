@@ -31,17 +31,19 @@ export type DashboardStashpointRow = FlagshipBusinessPackage & {
 }
 
 export async function fetchDashboardStashpointRows(
-  cityName: string,
+  cityName: string | null | undefined,
   partialOverrides: Partial<FlagshipDashboardOverrides>,
   listingFilters: StashpointListingFilters = {}
 ): Promise<DashboardStashpointRow[]> {
-  const trimmed = cityName.trim()
-  if (!trimmed) return []
+  const trimmed = String(cityName ?? '').trim()
   const overrides = normalizeDashboardOverrides(partialOverrides)
-  const raw = await listStashpointsFromDb({
-    cityName: trimmed,
-    ...listingFilters,
-  })
+  const raw =
+    trimmed && trimmed !== '__ALL__'
+      ? await listStashpointsFromDb({
+          cityName: trimmed,
+          ...listingFilters,
+        })
+      : await listStashpointsFromDb(listingFilters)
   const enriched = await enrichStashpointRowsWithHostIds(raw)
   return enriched.map((r) => {
     const pkg = buildFlagshipPropsFromMetrics(r, overrides)

@@ -62,6 +62,8 @@ type FormFields = {
   topViews: string
   topRevenue: string
 }
+const ALL_CITIES_TOKEN = '__ALL__'
+const ALL_CITIES_LABEL = 'All cities'
 
 function initialForm(): FormFields {
   const d = DEFAULT_FLAGSHIP_DASHBOARD_OVERRIDES
@@ -627,6 +629,11 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
     setCityQuery(name)
     setDropdownOpen(false)
   }
+  const loadAllCities = () => {
+    setSelectedCity(ALL_CITIES_TOKEN)
+    setCityQuery(ALL_CITIES_LABEL)
+    setDropdownOpen(false)
+  }
 
   const refreshTable = () => {
     if (selectedCity) void loadRows(selectedCity, form)
@@ -656,6 +663,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
 
   async function publishLiveOverrides() {
     if (!selectedCity) return
+    if (selectedCity === ALL_CITIES_TOKEN) return
     setPublishMessage(null)
     setPublishBusy(true)
     try {
@@ -717,7 +725,10 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
           subject: campaignSubject,
           textBody: campaignTextBody,
           htmlBody: campaignHtmlBody.trim() || undefined,
-          city: selectedCity ?? undefined,
+          city:
+            selectedCity && selectedCity !== ALL_CITIES_TOKEN
+              ? selectedCity
+              : undefined,
           recipients: emailRecipients,
         }),
       })
@@ -917,10 +928,18 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               </div>
               {selectedCity && (
                 <p className="text-xs text-slate-600">
-                  Selected: <span className="font-medium text-slate-900">{selectedCity}</span>
+                  Selected:{' '}
+                  <span className="font-medium text-slate-900">
+                    {selectedCity === ALL_CITIES_TOKEN ? ALL_CITIES_LABEL : selectedCity}
+                  </span>
                   {loadingRows ? ' · Loading…' : ` · ${rows.length} stashpoint(s)`}
                 </p>
               )}
+              <div>
+                <Button type="button" variant="outline" size="sm" onClick={loadAllCities}>
+                  Load all cities
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -935,6 +954,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
                     size="sm"
                     disabled={
                       !selectedCity ||
+                      selectedCity === ALL_CITIES_TOKEN ||
                       publishBusy ||
                       publishConfigured !== true
                     }
@@ -1363,7 +1383,7 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               <CardTitle className="text-lg">Stashpoints</CardTitle>
               {!selectedCity && (
                 <p className="text-sm font-normal text-slate-600">
-                  Select a city from the list to load stashpoints.
+                  Select a city from the list, or click "Load all cities", to load stashpoints.
                 </p>
               )}
             </div>

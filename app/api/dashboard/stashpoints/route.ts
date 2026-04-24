@@ -56,10 +56,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON', rows: [] }, { status: 400 })
   }
-  const city = body.city?.trim()
-  if (!city) {
-    return NextResponse.json({ error: 'Missing city', rows: [] }, { status: 400 })
-  }
+  const city = body.city?.trim() || '__ALL__'
   try {
     const listingFilters = parseStashpointFilterPayload(body.filters)
     const rows = await fetchDashboardStashpointRows(
