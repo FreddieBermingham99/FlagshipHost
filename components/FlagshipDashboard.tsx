@@ -850,6 +850,12 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
             >
               Signage links
             </a>
+            <a
+              href="/dashboard/programme/links"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Programme links
+            </a>
             <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={logout}>
               Log out
             </Button>
