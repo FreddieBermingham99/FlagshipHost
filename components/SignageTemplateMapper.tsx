@@ -74,13 +74,11 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
       if (layer === 'qr') {
         const base = resolveQrOverlayRect(overlay, naturalW, naturalH)
         const nextRect = patchRectCorner(base, dragging, p, naturalW, naturalH)
-        const { qrQuad: _q, ...rest } = overlay
-        onChange({ ...rest, qrRect: nextRect })
+        onChange({ ...overlay, qrRect: nextRect, qrQuad: undefined })
       } else {
         const base = resolveBusinessOverlayRect(overlay, naturalW, naturalH)
         const nextRect = patchRectCorner(base, dragging, p, naturalW, naturalH)
-        const { businessNameQuad: _b, ...rest } = overlay
-        onChange({ ...rest, businessNameRect: nextRect })
+        onChange({ ...overlay, businessNameRect: nextRect, businessNameQuad: undefined })
       }
     }
     const up = () => setDragging(null)
@@ -96,15 +94,17 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
 
   const resetQr = () => {
     if (naturalW > 0 && naturalH > 0) {
-      const { qrQuad: _q, ...rest } = overlay
-      onChange({ ...rest, qrRect: defaultQrRect(naturalW, naturalH) })
+      onChange({ ...overlay, qrRect: defaultQrRect(naturalW, naturalH), qrQuad: undefined })
     }
   }
 
   const resetBusiness = () => {
     if (naturalW > 0 && naturalH > 0) {
-      const { businessNameQuad: _b, ...rest } = overlay
-      onChange({ ...rest, businessNameRect: defaultBusinessRect(naturalW, naturalH) })
+      onChange({
+        ...overlay,
+        businessNameRect: defaultBusinessRect(naturalW, naturalH),
+        businessNameQuad: undefined,
+      })
     }
   }
 
