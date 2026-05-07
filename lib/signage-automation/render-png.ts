@@ -66,9 +66,6 @@ export async function renderSignagePng(params: {
 }): Promise<Buffer> {
   const templateBuffer = await loadTemplateBuffer(params.templateUrl)
   const base = sharp(templateBuffer)
-  const meta = await base.metadata()
-  const width = meta.width ?? 1200
-  const height = meta.height ?? 1200
   const layers: sharp.OverlayOptions[] = []
 
   if (params.qrUrl) {

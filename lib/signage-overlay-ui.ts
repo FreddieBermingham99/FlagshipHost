@@ -53,10 +53,10 @@ export function rectFromQuadAabb(q: OverlayQuad): OverlayRect {
 const MIN_RECT_SIDE = 8
 
 function clampRectToImage(r: OverlayRect, nw: number, nh: number): OverlayRect {
-  let x = clamp(r.x, 0, nw - MIN_RECT_SIDE)
-  let y = clamp(r.y, 0, nh - MIN_RECT_SIDE)
-  let w = clamp(r.width, MIN_RECT_SIDE, nw - x)
-  let h = clamp(r.height, MIN_RECT_SIDE, nh - y)
+  const x = clamp(r.x, 0, nw - MIN_RECT_SIDE)
+  const y = clamp(r.y, 0, nh - MIN_RECT_SIDE)
+  const w = clamp(r.width, MIN_RECT_SIDE, nw - x)
+  const h = clamp(r.height, MIN_RECT_SIDE, nh - y)
   return { x, y, width: w, height: h }
 }
 
