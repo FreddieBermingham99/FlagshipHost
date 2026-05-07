@@ -59,6 +59,7 @@ type FiltersState = {
 
 const SOURCE_OPTIONS = [
   { value: 'signage', label: 'Direct' },
+  { value: 'signage_city_campaign', label: 'City activation' },
   { value: 'flagship', label: 'From flagship' },
   { value: 'programme_pro', label: 'From programme (Pro)' },
   { value: 'mixed', label: 'Mixed' },
@@ -71,10 +72,12 @@ function SourceBadge({ source }: { source: string }) {
     source === 'flagship'
       ? 'text-purple-700 bg-purple-50 border-purple-200'
       : source === 'programme_pro'
-      ? 'text-indigo-700 bg-indigo-50 border-indigo-200'
-      : source === 'mixed'
-      ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-      : 'text-slate-600 bg-slate-50 border-slate-200'
+        ? 'text-indigo-700 bg-indigo-50 border-indigo-200'
+        : source === 'mixed'
+          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+          : source === 'signage_city_campaign'
+            ? 'text-sky-700 bg-sky-50 border-sky-200'
+            : 'text-slate-600 bg-slate-50 border-slate-200'
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${color}`}>
       {label}
@@ -237,6 +240,14 @@ export default function SignageOrdersDashboard() {
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
 
+  useEffect(() => {
+    void (async () => {
+      const citiesRes = await fetch('/api/dashboard/cities')
+      const citiesData = await citiesRes.json().catch(() => ({}))
+      if (citiesRes.ok && Array.isArray(citiesData.cities)) setAvailableCities(citiesData.cities)
+    })()
+  }, [])
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -246,6 +257,9 @@ export default function SignageOrdersDashboard() {
             <p className="text-sm text-slate-500">Track, review, and clean up signage order submissions.</p>
           </div>
           <div className="flex items-center gap-4">
+            <a href="/dashboard/signage/city-activation" className="text-sm text-blue-600 hover:underline">
+              City activation
+            </a>
             <a href="/dashboard/signage/catalog" className="text-sm text-blue-600 hover:underline">
               Manage catalog
             </a>

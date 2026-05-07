@@ -1,4 +1,5 @@
 import { isSubmissionsDbConfigured, upsertSignageOrder } from '@/lib/submissions-db'
+import { queueGenerateSignageForOrder } from '@/lib/signage-automation/generate-for-order'
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -47,6 +48,7 @@ export async function POST(req: Request): Promise<Response> {
       source: 'signage',
       items,
     })
+    queueGenerateSignageForOrder(order.id)
 
     return new Response(JSON.stringify({ ok: true, orderId: order.id }), {
       status: 200,

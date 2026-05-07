@@ -20,6 +20,10 @@ export type StashpointFilterPayload = {
   /** Metres; used with radiusCenters. */
   radiusMeters?: number
   radiusCenters?: RadiusCenterInput[]
+  /** Sort by trailing-30-day metric (use with `limit` for top N). */
+  rankBy?: 'bookings' | 'revenue'
+  /** Max stashpoints to return after sort (capped server-side). */
+  limit?: number
 }
 
 const MAX_RADIUS_CENTERS = 25
@@ -66,6 +70,15 @@ export function parseStashpointFilterPayload(raw: unknown): StashpointListingFil
   if (r !== undefined && r > 0 && centers.length > 0) {
     out.radiusMeters = r
     out.radiusCenters = centers
+  }
+
+  if (o.rankBy === 'bookings' || o.rankBy === 'revenue') {
+    out.rankBy = o.rankBy
+  }
+
+  const lim = num(o.limit)
+  if (lim !== undefined && lim > 0) {
+    out.limit = Math.min(Math.floor(lim), 500)
   }
 
   return out

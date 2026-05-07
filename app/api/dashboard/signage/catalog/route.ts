@@ -36,6 +36,10 @@ export async function POST(req: Request) {
       name?: string
       description?: string
       image_url?: string
+      template_image_url?: string | null
+      requires_customisation?: boolean
+      requires_unique_qr?: boolean
+      overlay_config?: Record<string, unknown>
       max_quantity?: number
       is_visible?: boolean
       sort_order?: number
@@ -47,6 +51,12 @@ export async function POST(req: Request) {
       name: String(body.name).trim(),
       description: body.description ?? null,
       image_url: body.image_url ?? null,
+      template_image_url:
+        typeof body.template_image_url === 'string' ? body.template_image_url.trim() || null : null,
+      requires_customisation: body.requires_customisation ?? true,
+      requires_unique_qr: body.requires_unique_qr ?? true,
+      overlay_config:
+        body.overlay_config && typeof body.overlay_config === 'object' ? body.overlay_config : {},
       max_quantity: typeof body.max_quantity === 'number' ? body.max_quantity : 1,
       is_visible: body.is_visible ?? true,
       sort_order: body.sort_order ?? 0,

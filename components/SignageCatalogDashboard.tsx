@@ -6,6 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SignageTemplateMapper } from '@/components/SignageTemplateMapper'
+import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
+import {
+  defaultBusinessQuad,
+  defaultQrQuad,
+  overlayConfigFromCatalog,
+  quadFromRect,
+} from '@/lib/signage-overlay-ui'
 
 type CatalogOption = {
   id: number
@@ -14,6 +22,7 @@ type CatalogOption = {
   option_name: string
   option_value: string
   design_image_url?: string | null
+  template_image_url?: string | null
   is_visible: boolean
 }
 
@@ -22,11 +31,24 @@ type CatalogItem = {
   name: string
   description: string | null
   image_url: string | null
+  template_image_url?: string | null
+  requires_customisation?: boolean
+  requires_unique_qr?: boolean
+  overlay_config?: Record<string, unknown>
   max_quantity?: number
   is_visible: boolean
   sort_order: number
   orders_count: number
   options: CatalogOption[]
+}
+
+async function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function SignageCatalogDashboard() {
@@ -35,17 +57,24 @@ export default function SignageCatalogDashboard() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [imageUrl, setImageUrl] = useState('')
+  const [templateImageUrl, setTemplateImageUrl] = useState('')
+  const [newItemNoCustomisation, setNewItemNoCustomisation] = useState(false)
   const [maxQuantity, setMaxQuantity] = useState(1)
   const [optionItemId, setOptionItemId] = useState<number | null>(null)
   const [optionType, setOptionType] = useState<'size' | 'design'>('size')
   const [sizeValue, setSizeValue] = useState('')
   const [designName, setDesignName] = useState('')
   const [designImageDataUrl, setDesignImageDataUrl] = useState('')
+  const [optionTemplateDataUrl, setOptionTemplateDataUrl] = useState('')
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
   const [editItemName, setEditItemName] = useState('')
   const [editItemDescription, setEditItemDescription] = useState('')
   const [editItemImageUrl, setEditItemImageUrl] = useState('')
+  const [editTemplateImageUrl, setEditTemplateImageUrl] = useState('')
   const [editItemMaxQuantity, setEditItemMaxQuantity] = useState(1)
+  const [editItemRequiresQr, setEditItemRequiresQr] = useState(true)
+  const [editNoCustomisation, setEditNoCustomisation] = useState(false)
+  const [editOverlay, setEditOverlay] = useState<SignageOverlayConfig>({})
   const [editingOption, setEditingOption] = useState<{ itemId: number; option: CatalogOption } | null>(null)
 
   const fetchItems = useCallback(async () => {
@@ -72,6 +101,8 @@ export default function SignageCatalogDashboard() {
         name,
         description,
         image_url: imageUrl,
+        template_image_url: templateImageUrl.trim() || null,
+        requires_customisation: !newItemNoCustomisation,
         max_quantity: Math.max(1, maxQuantity || 1),
         is_visible: true,
       }),
@@ -79,6 +110,8 @@ export default function SignageCatalogDashboard() {
     setName('')
     setDescription('')
     setImageUrl('')
+    setTemplateImageUrl('')
+    setNewItemNoCustomisation(false)
     setMaxQuantity(1)
     fetchItems()
   }
@@ -104,6 +137,7 @@ export default function SignageCatalogDashboard() {
     setSizeValue('')
     setDesignName('')
     setDesignImageDataUrl('')
+    setOptionTemplateDataUrl('')
   }
 
   const closeAddOptionModal = () => {
@@ -115,7 +149,11 @@ export default function SignageCatalogDashboard() {
     setEditItemName(item.name)
     setEditItemDescription(item.description || '')
     setEditItemImageUrl(item.image_url || '')
+    setEditTemplateImageUrl(item.template_image_url?.trim() ? item.template_image_url : '')
     setEditItemMaxQuantity(Math.max(1, item.max_quantity || 1))
+    setEditItemRequiresQr(item.requires_unique_qr !== false)
+    setEditNoCustomisation(item.requires_customisation === false)
+    setEditOverlay(overlayConfigFromCatalog(item.overlay_config))
   }
 
   const closeEditItemModal = () => {
@@ -131,6 +169,10 @@ export default function SignageCatalogDashboard() {
         name: editItemName.trim(),
         description: editItemDescription,
         image_url: editItemImageUrl,
+        template_image_url: editTemplateImageUrl.trim(),
+        requires_customisation: !editNoCustomisation,
+        requires_unique_qr: editItemRequiresQr,
+        overlay_config: editOverlay as Record<string, unknown>,
         max_quantity: Math.max(1, editItemMaxQuantity || 1),
       }),
     })
@@ -143,6 +185,7 @@ export default function SignageCatalogDashboard() {
     setEditingOption({ itemId, option })
     const type = option.option_type === 'design' ? 'design' : 'size'
     setOptionType(type)
+    setOptionTemplateDataUrl(option.template_image_url?.trim() ? option.template_image_url : '')
     if (type === 'size') {
       setSizeValue(option.option_name || '')
       setDesignName('')
@@ -182,10 +225,6 @@ export default function SignageCatalogDashboard() {
       window.alert(isSize ? 'Please enter a size.' : 'Please enter a design name.')
       return
     }
-    if (!isSize && !designImageDataUrl) {
-      window.alert('Please upload a design image.')
-      return
-    }
 
     await fetch(`/api/dashboard/signage/catalog/${optionItemId}`, {
       method: 'POST',
@@ -195,7 +234,8 @@ export default function SignageCatalogDashboard() {
         option_group_label: isSize ? 'Size' : 'Design',
         option_name: optionName,
         option_value: optionName,
-        design_image_url: isSize ? null : designImageDataUrl,
+        design_image_url: isSize ? null : designImageDataUrl || null,
+        template_image_url: optionTemplateDataUrl.trim() || null,
         is_visible: true,
       }),
     })
@@ -211,10 +251,6 @@ export default function SignageCatalogDashboard() {
       window.alert(isSize ? 'Please enter a size.' : 'Please enter a design name.')
       return
     }
-    if (!isSize && !designImageDataUrl) {
-      window.alert('Please upload a design image.')
-      return
-    }
     await fetch(`/api/dashboard/signage/catalog/${editingOption.itemId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -225,7 +261,8 @@ export default function SignageCatalogDashboard() {
         option_group_label: isSize ? 'Size' : 'Design',
         option_name: optionName,
         option_value: optionName,
-        design_image_url: isSize ? null : designImageDataUrl,
+        design_image_url: isSize ? null : designImageDataUrl || null,
+        template_image_url: optionTemplateDataUrl.trim(),
       }),
     })
     closeEditOptionModal()
@@ -255,25 +292,93 @@ export default function SignageCatalogDashboard() {
             <a href="/dashboard/signage/links" className="text-sm text-blue-600 hover:underline">
               View links
             </a>
+            <a href="/dashboard/signage/automation" className="text-sm text-blue-600 hover:underline">
+              Automation settings
+            </a>
           </div>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Add signage type</CardTitle>
+            <p className="text-xs text-slate-500">
+              Display image is what hosts see when ordering. Production template is used to generate finals (can match
+              display or be a separate flat artwork file).
+            </p>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-5">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
-            <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Image URL" />
-            <Input
-              type="number"
-              min={1}
-              value={maxQuantity}
-              onChange={(e) => setMaxQuantity(Math.max(1, Number(e.target.value) || 1))}
-              placeholder="Max qty"
-            />
-            <Button onClick={createItem}>Add</Button>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
+            </div>
+            <div className="grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-slate-700">Display image (picker / website)</Label>
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    try {
+                      setImageUrl(await readFileAsDataUrl(file))
+                    } catch {
+                      window.alert('Could not read that file.')
+                    }
+                  }}
+                />
+                <Input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Or URL (https://…)"
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-slate-700">Production template (generation)</Label>
+                <p className="text-[11px] text-slate-500">Leave empty to use the display image for generation.</p>
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    try {
+                      setTemplateImageUrl(await readFileAsDataUrl(file))
+                    } catch {
+                      window.alert('Could not read that file.')
+                    }
+                  }}
+                />
+                <Input
+                  value={templateImageUrl}
+                  onChange={(e) => setTemplateImageUrl(e.target.value)}
+                  placeholder="Or template URL"
+                  className="text-xs"
+                />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={newItemNoCustomisation}
+                onChange={(e) => setNewItemNoCustomisation(e.target.checked)}
+              />
+              No customisation (generated file is the template only — no QR or business name)
+            </label>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <Label className="text-xs text-slate-500">Max qty</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  className="mt-1 w-24"
+                  value={maxQuantity}
+                  onChange={(e) => setMaxQuantity(Math.max(1, Number(e.target.value) || 1))}
+                />
+              </div>
+              <Button onClick={createItem}>Add signage type</Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -323,11 +428,14 @@ export default function SignageCatalogDashboard() {
                   </div>
                   <div className="mt-3">
                     {item.image_url && (
-                      <img
-                        src={item.image_url}
-                        alt={item.name}
-                        className="mb-3 h-24 w-24 rounded-md border object-cover"
-                      />
+                      <div className="mb-3">
+                        <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400">Display</p>
+                        <img
+                          src={item.image_url}
+                          alt={item.name}
+                          className="h-24 w-24 rounded-md border object-cover"
+                        />
+                      </div>
                     )}
                     {item.options.length === 0 ? (
                       <p className="text-xs text-slate-400">No options configured.</p>
@@ -382,11 +490,16 @@ export default function SignageCatalogDashboard() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
           onClick={closeEditItemModal}
         >
-          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <Card className="max-h-[92vh] w-full max-w-4xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <CardHeader>
               <CardTitle className="text-base">Edit signage type</CardTitle>
+              <p className="text-xs text-slate-500">
+                <strong>Display image</strong> appears in the ordering picker. <strong>Production template</strong> is
+                composited for automated fulfilment (QR / name). Map corners on the <strong>production template</strong>{' '}
+                preview below.
+              </p>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               <div>
                 <Label>Name</Label>
                 <Input value={editItemName} onChange={(e) => setEditItemName(e.target.value)} />
@@ -395,10 +508,86 @@ export default function SignageCatalogDashboard() {
                 <Label>Description</Label>
                 <Input value={editItemDescription} onChange={(e) => setEditItemDescription(e.target.value)} />
               </div>
-              <div>
-                <Label>Image URL</Label>
-                <Input value={editItemImageUrl} onChange={(e) => setEditItemImageUrl(e.target.value)} />
+              <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Display image (picker)</Label>
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        setEditItemImageUrl(await readFileAsDataUrl(file))
+                      } catch {
+                        window.alert('Could not read that file.')
+                      }
+                    }}
+                  />
+                  <Input
+                    value={editItemImageUrl}
+                    onChange={(e) => setEditItemImageUrl(e.target.value)}
+                    placeholder="Or display image URL"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Production template (generation)</Label>
+                  <p className="text-[11px] text-slate-500">Leave empty to use the display image as the print template.</p>
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        setEditTemplateImageUrl(await readFileAsDataUrl(file))
+                      } catch {
+                        window.alert('Could not read that file.')
+                      }
+                    }}
+                  />
+                  <Input
+                    value={editTemplateImageUrl}
+                    onChange={(e) => setEditTemplateImageUrl(e.target.value)}
+                    placeholder="Or production template URL"
+                  />
+                </div>
               </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={editNoCustomisation}
+                  onChange={(e) => setEditNoCustomisation(e.target.checked)}
+                />
+                No customisation (skip QR and business name — upload template as-is)
+              </label>
+              {!editNoCustomisation ? (
+                <SignageTemplateMapper
+                  imageSrc={editTemplateImageUrl.trim() ? editTemplateImageUrl : editItemImageUrl}
+                  overlay={editOverlay}
+                  onChange={setEditOverlay}
+                  onImageSized={(nw, nh) => {
+                    setEditOverlay((o) => ({
+                      ...o,
+                      qrQuad:
+                        o.qrQuad ?? (o.qrRect ? quadFromRect(o.qrRect) : defaultQrQuad(nw, nh)),
+                      businessNameQuad:
+                        o.businessNameQuad ??
+                        (o.businessNameRect &&
+                        typeof o.businessNameRect.width === 'number' &&
+                        o.businessNameRect.width > 0 &&
+                        typeof o.businessNameRect.height === 'number' &&
+                        o.businessNameRect.height > 0
+                          ? quadFromRect(o.businessNameRect)
+                          : defaultBusinessQuad(nw, nh)),
+                    }))
+                  }}
+                />
+              ) : (
+                <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Overlay mapping is disabled for this item because fulfilment uses the raw template only.
+                </p>
+              )}
               <div>
                 <Label>Max quantity per order</Label>
                 <Input
@@ -408,7 +597,16 @@ export default function SignageCatalogDashboard() {
                   onChange={(e) => setEditItemMaxQuantity(Math.max(1, Number(e.target.value) || 1))}
                 />
               </div>
-              <div className="flex justify-end gap-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editItemRequiresQr}
+                  onChange={(e) => setEditItemRequiresQr(e.target.checked)}
+                  disabled={editNoCustomisation}
+                />
+                Requires unique QR (only when customisation is on)
+              </label>
+              <div className="flex justify-end gap-2 border-t pt-4">
                 <Button type="button" variant="ghost" onClick={closeEditItemModal}>
                   Cancel
                 </Button>
@@ -473,7 +671,7 @@ export default function SignageCatalogDashboard() {
                     />
                   </div>
                   <div>
-                    <Label>Design image</Label>
+                    <Label>Display preview (picker / modal)</Label>
                     <Input
                       type="file"
                       accept="image/*"
@@ -489,6 +687,36 @@ export default function SignageCatalogDashboard() {
                   )}
                 </div>
               )}
+
+              <div className="space-y-2 border-t pt-3">
+                <Label className="text-xs">Production template for this option (optional)</Label>
+                <p className="text-[11px] text-slate-500">
+                  When the order includes this option, this file is used for generation instead of the item-level
+                  template. Leave empty to inherit the parent signage template.
+                </p>
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) {
+                      setOptionTemplateDataUrl('')
+                      return
+                    }
+                    try {
+                      setOptionTemplateDataUrl(await readFileAsDataUrl(file))
+                    } catch {
+                      window.alert('Could not read that file.')
+                    }
+                  }}
+                />
+                <Input
+                  placeholder="Or template URL / data URL"
+                  value={optionTemplateDataUrl}
+                  onChange={(e) => setOptionTemplateDataUrl(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={closeAddOptionModal}>
@@ -543,7 +771,7 @@ export default function SignageCatalogDashboard() {
                     <Input value={designName} onChange={(e) => setDesignName(e.target.value)} />
                   </div>
                   <div>
-                    <Label>Design image</Label>
+                    <Label>Display preview (picker / modal)</Label>
                     <Input
                       type="file"
                       accept="image/*"
@@ -555,6 +783,34 @@ export default function SignageCatalogDashboard() {
                   )}
                 </div>
               )}
+              <div className="space-y-2 border-t pt-3">
+                <Label className="text-xs">Production template for this option (optional)</Label>
+                <p className="text-[11px] text-slate-500">
+                  Overrides item template for generation when this option is selected.
+                </p>
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) {
+                      setOptionTemplateDataUrl('')
+                      return
+                    }
+                    try {
+                      setOptionTemplateDataUrl(await readFileAsDataUrl(file))
+                    } catch {
+                      window.alert('Could not read that file.')
+                    }
+                  }}
+                />
+                <Input
+                  placeholder="Or template URL"
+                  value={optionTemplateDataUrl}
+                  onChange={(e) => setOptionTemplateDataUrl(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={closeEditOptionModal}>
                   Cancel

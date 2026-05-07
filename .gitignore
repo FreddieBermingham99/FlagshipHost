@@ -28,6 +28,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# Google Drive service account (copy your downloaded key here; never commit)
+secrets/google-signage-credentials.json
+
 # vercel
 .vercel
 

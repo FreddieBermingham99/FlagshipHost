@@ -8,6 +8,7 @@ import {
 } from '@/lib/submissions-db'
 import { catalogNameForPickerId } from '@/lib/signage-picker-mapping'
 import { findStashpointRowById } from '@/lib/flagship-business'
+import { queueGenerateSignageForOrder } from '@/lib/signage-automation/generate-for-order'
 import { isStasherDbConfigured, listStashpointsFromDb } from '@/lib/stasher-db'
 
 type ProgrammeSubmitSlot = {
@@ -260,7 +261,7 @@ async function mirrorSignageOrderFromSubmission(args: MirrorArgs): Promise<void>
     }
   }
 
-  await upsertSignageOrder({
+  const order = await upsertSignageOrder({
     stashpoint_id: args.stashpointId,
     business_name: args.businessName,
     city: args.city || null,
@@ -281,4 +282,5 @@ async function mirrorSignageOrderFromSubmission(args: MirrorArgs): Promise<void>
     submission_batch_id: args.submissionBatchId,
     items,
   })
+  queueGenerateSignageForOrder(order.id)
 }

@@ -18,10 +18,40 @@ import {
  *  - the submissions DB is not configured (no cache available),
  *  - TinyURL returns an error / times out,
  *  - `SHORT_LINKS_DISABLED` env var is truthy.
+ *
+ * Env (optional):
+ *  - `SHORT_LINK_TIMEOUT_MS` — per-request timeout (default 8s prod, 15s dev).
+ *  - `SHORT_LINK_CONCURRENCY` — parallel TinyURL calls (default 8 prod, 2 dev).
+ *  - `SHORT_LINK_RELAXED_ALIAS` — if true, when a custom alias is rejected,
+ *    create an unaliased TinyURL instead of returning the long URL (default on in dev).
  */
 
 const TINYURL_ENDPOINT = 'https://tinyurl.com/api-create.php'
-const SHORTEN_TIMEOUT_MS = 4000
+
+function shortenTimeoutMs(): number {
+  const raw = process.env.SHORT_LINK_TIMEOUT_MS
+  if (raw) {
+    const n = Number.parseInt(raw, 10)
+    if (Number.isFinite(n) && n >= 3000) return n
+  }
+  return process.env.NODE_ENV === 'development' ? 15_000 : 8000
+}
+
+function allowRandomFallbackAfterAliasFail(): boolean {
+  const v = process.env.SHORT_LINK_RELAXED_ALIAS?.toLowerCase()
+  if (v === '1' || v === 'true' || v === 'yes') return true
+  if (v === '0' || v === 'false' || v === 'no') return false
+  return process.env.NODE_ENV === 'development'
+}
+
+function shortenConcurrency(): number {
+  const raw = process.env.SHORT_LINK_CONCURRENCY
+  if (raw) {
+    const n = Number.parseInt(raw, 10)
+    if (Number.isFinite(n) && n >= 1) return Math.min(n, 16)
+  }
+  return process.env.NODE_ENV === 'development' ? 2 : 8
+}
 
 function isDisabled(): boolean {
   const v = process.env.SHORT_LINKS_DISABLED?.toLowerCase()
@@ -43,9 +73,9 @@ function sanitizeAlias(alias: string): string {
   return cleaned
 }
 
-async function callTinyUrl(longUrl: string, alias?: string): Promise<string | null> {
+async function callTinyUrlOnce(longUrl: string, alias?: string): Promise<string | null> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), SHORTEN_TIMEOUT_MS)
+  const timeout = setTimeout(() => controller.abort(), shortenTimeoutMs())
   try {
     const aliasParam = alias ? `&alias=${encodeURIComponent(alias)}` : ''
     const res = await fetch(
@@ -63,6 +93,16 @@ async function callTinyUrl(longUrl: string, alias?: string): Promise<string | nu
   }
 }
 
+async function callTinyUrl(longUrl: string, alias?: string): Promise<string | null> {
+  const attempts = process.env.NODE_ENV === 'development' ? 3 : 2
+  for (let a = 0; a < attempts; a++) {
+    if (a > 0) await new Promise((r) => setTimeout(r, 350 * a))
+    const got = await callTinyUrlOnce(longUrl, alias)
+    if (got) return got
+  }
+  return null
+}
+
 async function fetchShortFromTinyUrl(longUrl: string, rawAlias?: string): Promise<string | null> {
   const cleanAlias = rawAlias ? sanitizeAlias(rawAlias) : ''
 
@@ -77,9 +117,11 @@ async function fetchShortFromTinyUrl(longUrl: string, rawAlias?: string): Promis
       const retry = await callTinyUrl(longUrl, noDashes)
       if (retry) return retry
     }
-    // Deterministic campaign slugs: when a custom alias was requested but is
-    // unavailable (taken/rejected), do NOT silently switch to random TinyURL.
-    // Callers will fall back to the long URL instead.
+    if (allowRandomFallbackAfterAliasFail()) {
+      const auto = await callTinyUrl(longUrl)
+      if (auto) return auto
+    }
+    // Strict mode (production default): keep long URL when the branded alias fails.
     return null
   }
 
@@ -151,7 +193,7 @@ export async function shortenManyUrls(
 
   if (needsFetch.length === 0) return out
 
-  const CONCURRENCY = 8
+  const CONCURRENCY = shortenConcurrency()
   let i = 0
   async function worker() {
     while (i < needsFetch.length) {

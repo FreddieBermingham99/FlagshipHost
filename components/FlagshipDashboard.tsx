@@ -851,6 +851,12 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
               Signage links
             </a>
             <a
+              href="/dashboard/signage/automation"
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Signage automation
+            </a>
+            <a
               href="/dashboard/programme/links"
               className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
             >

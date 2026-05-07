@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS signage_catalog_items (
   name TEXT NOT NULL,
   description TEXT,
   image_url TEXT,
+  requires_unique_qr BOOLEAN NOT NULL DEFAULT TRUE,
+  overlay_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   max_quantity INTEGER NOT NULL DEFAULT 1,
   is_visible BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -115,9 +117,14 @@ CREATE TABLE IF NOT EXISTS signage_catalog_items (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS max_quantity INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS requires_unique_qr BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS overlay_config JSONB NOT NULL DEFAULT '{}'::jsonb;
 UPDATE signage_catalog_items
 SET max_quantity = 1
 WHERE max_quantity IS NULL OR max_quantity < 1;
+
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS template_image_url TEXT;
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS requires_customisation BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS signage_catalog_item_options (
   id SERIAL PRIMARY KEY,
@@ -127,6 +134,7 @@ CREATE TABLE IF NOT EXISTS signage_catalog_item_options (
   option_name TEXT NOT NULL,
   option_value TEXT NOT NULL,
   design_image_url TEXT,
+  overlay_config JSONB,
   price_hint TEXT,
   is_visible BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -136,6 +144,8 @@ CREATE TABLE IF NOT EXISTS signage_catalog_item_options (
 
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS option_type TEXT NOT NULL DEFAULT 'size';
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS design_image_url TEXT;
+ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS overlay_config JSONB;
+ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS template_image_url TEXT;
 
 CREATE TABLE IF NOT EXISTS signage_orders (
   id SERIAL PRIMARY KEY,
@@ -181,8 +191,14 @@ CREATE TABLE IF NOT EXISTS signage_order_items (
   catalog_item_id INTEGER REFERENCES signage_catalog_items(id) ON DELETE SET NULL,
   item_name_snapshot TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
-  selected_options JSONB NOT NULL DEFAULT '{}'::jsonb
+  selected_options JSONB NOT NULL DEFAULT '{}'::jsonb,
+  generated_asset_drive_file_id TEXT,
+  generated_asset_link TEXT,
+  asset_error TEXT
 );
+ALTER TABLE signage_order_items ADD COLUMN IF NOT EXISTS generated_asset_drive_file_id TEXT;
+ALTER TABLE signage_order_items ADD COLUMN IF NOT EXISTS generated_asset_link TEXT;
+ALTER TABLE signage_order_items ADD COLUMN IF NOT EXISTS asset_error TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_signage_catalog_items_visible ON signage_catalog_items (is_visible, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_signage_catalog_item_options_item ON signage_catalog_item_options (item_id, is_visible, sort_order, id);
@@ -523,6 +539,39 @@ export type ProgrammeRequirements = {
 }
 
 const REQUIREMENTS_KEY = 'requirements'
+const SIGNAGE_AUTOMATION_KEY = 'signage_automation'
+
+export type SignageAutomationSettings = {
+  qr_url_template: string
+  utm_source: string
+  utm_medium: string
+  utm_campaign: string
+  utm_term: string
+  utm_content: string
+  use_short_links: boolean
+  digest_recipients: string[]
+  digest_timezone: string
+  google_drive_folder_id: string
+  default_business_text_color: string
+  default_business_font_size_px: number
+  last_signage_digest_sent_at: string | null
+}
+
+const DEFAULT_SIGNAGE_AUTOMATION_SETTINGS: SignageAutomationSettings = {
+  qr_url_template: '',
+  utm_source: 'countertop_sign',
+  utm_medium: 'QR',
+  utm_campaign: 'SignageShop',
+  utm_term: '',
+  utm_content: '',
+  use_short_links: false,
+  digest_recipients: [],
+  digest_timezone: 'Europe/London',
+  google_drive_folder_id: '',
+  default_business_text_color: '#111111',
+  default_business_font_size_px: 42,
+  last_signage_digest_sent_at: null,
+}
 
 export async function getRequirements(): Promise<ProgrammeRequirements> {
   await ensureTable()
@@ -548,6 +597,52 @@ export async function setRequirements(reqs: ProgrammeRequirements): Promise<void
   })
 }
 
+export async function getSignageAutomationSettings(): Promise<SignageAutomationSettings> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<{ value: Partial<SignageAutomationSettings> }>(
+      'SELECT value FROM programme_settings WHERE key = $1',
+      [SIGNAGE_AUTOMATION_KEY]
+    )
+    const v = res.rows[0]?.value ?? {}
+    const recipients = Array.isArray(v.digest_recipients)
+      ? v.digest_recipients.map((r) => String(r).trim()).filter(Boolean)
+      : []
+    const fontSize = Number(v.default_business_font_size_px)
+    return {
+      ...DEFAULT_SIGNAGE_AUTOMATION_SETTINGS,
+      ...v,
+      use_short_links: Boolean(v.use_short_links),
+      digest_recipients: recipients,
+      default_business_font_size_px: Number.isFinite(fontSize) && fontSize > 8 ? fontSize : 42,
+      last_signage_digest_sent_at:
+        typeof v.last_signage_digest_sent_at === 'string' ? v.last_signage_digest_sent_at : null,
+    }
+  })
+}
+
+export async function setSignageAutomationSettings(
+  data: Partial<SignageAutomationSettings>
+): Promise<SignageAutomationSettings> {
+  const merged = { ...(await getSignageAutomationSettings()), ...data }
+  merged.digest_recipients = (merged.digest_recipients ?? [])
+    .map((r) => String(r).trim())
+    .filter(Boolean)
+  merged.default_business_font_size_px = Math.max(
+    8,
+    Math.floor(Number(merged.default_business_font_size_px) || 42)
+  )
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO programme_settings (key, value, updated_at)
+       VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [SIGNAGE_AUTOMATION_KEY, JSON.stringify(merged)]
+    )
+  })
+  return merged
+}
+
 // ---------------------------------------------------------------------------
 // Signage catalog
 // ---------------------------------------------------------------------------
@@ -560,6 +655,9 @@ export type SignageCatalogOption = {
   option_name: string
   option_value: string
   design_image_url: string | null
+  /** When set, this option uses its own production template for asset generation (overrides item-level template). */
+  template_image_url: string | null
+  overlay_config: Record<string, unknown> | null
   price_hint: string | null
   is_visible: boolean
   sort_order: number
@@ -571,7 +669,14 @@ export type SignageCatalogItem = {
   id: number
   name: string
   description: string | null
+  /** Picker / marketing image on ordering flows. */
   image_url: string | null
+  /** Flat print template for compositing; when null, generation falls back to image_url. */
+  template_image_url: string | null
+  /** When false, generated file is the template only (no QR or business name). */
+  requires_customisation: boolean
+  requires_unique_qr: boolean
+  overlay_config: Record<string, unknown>
   max_quantity: number
   is_visible: boolean
   sort_order: number
@@ -588,6 +693,10 @@ export type SignageCatalogItemInsert = {
   name: string
   description?: string | null
   image_url?: string | null
+  template_image_url?: string | null
+  requires_customisation?: boolean
+  requires_unique_qr?: boolean
+  overlay_config?: Record<string, unknown>
   max_quantity?: number
   is_visible?: boolean
   sort_order?: number
@@ -602,6 +711,8 @@ export type SignageCatalogOptionInsert = {
   option_name: string
   option_value: string
   design_image_url?: string | null
+  template_image_url?: string | null
+  overlay_config?: Record<string, unknown> | null
   price_hint?: string | null
   is_visible?: boolean
   sort_order?: number
@@ -724,13 +835,17 @@ export async function createSignageCatalogItem(
   return withClient(async (c) => {
     const res = await c.query<SignageCatalogItem>(
       `INSERT INTO signage_catalog_items
-       (name, description, image_url, max_quantity, is_visible, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       (name, description, image_url, template_image_url, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
        RETURNING *`,
       [
         data.name,
         data.description ?? null,
         data.image_url ?? null,
+        data.template_image_url ?? null,
+        data.requires_customisation ?? true,
+        data.requires_unique_qr ?? true,
+        JSON.stringify(data.overlay_config ?? {}),
         Math.max(1, data.max_quantity ?? 1),
         data.is_visible ?? true,
         data.sort_order ?? 0,
@@ -752,16 +867,24 @@ export async function updateSignageCatalogItem(
          name = COALESCE($1, name),
          description = COALESCE($2, description),
          image_url = COALESCE($3, image_url),
-         max_quantity = COALESCE($4, max_quantity),
-         is_visible = COALESCE($5, is_visible),
-         sort_order = COALESCE($6, sort_order),
+         template_image_url = COALESCE($4, template_image_url),
+         requires_customisation = COALESCE($5, requires_customisation),
+         requires_unique_qr = COALESCE($6, requires_unique_qr),
+         overlay_config = COALESCE($7::jsonb, overlay_config),
+         max_quantity = COALESCE($8, max_quantity),
+         is_visible = COALESCE($9, is_visible),
+         sort_order = COALESCE($10, sort_order),
          updated_at = now()
-       WHERE id = $7
+       WHERE id = $11
        RETURNING *`,
       [
         data.name ?? null,
         data.description ?? null,
         data.image_url ?? null,
+        data.template_image_url ?? null,
+        data.requires_customisation ?? null,
+        data.requires_unique_qr ?? null,
+        data.overlay_config ? JSON.stringify(data.overlay_config) : null,
         data.max_quantity ?? null,
         data.is_visible ?? null,
         data.sort_order ?? null,
@@ -787,8 +910,8 @@ export async function createSignageCatalogOption(
   return withClient(async (c) => {
     const res = await c.query<SignageCatalogOption>(
       `INSERT INTO signage_catalog_item_options
-       (item_id, option_type, option_group_label, option_name, option_value, design_image_url, price_hint, is_visible, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (item_id, option_type, option_group_label, option_name, option_value, design_image_url, template_image_url, overlay_config, price_hint, is_visible, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
        RETURNING *`,
       [
         data.item_id,
@@ -797,6 +920,8 @@ export async function createSignageCatalogOption(
         data.option_name,
         data.option_value,
         data.design_image_url ?? null,
+        data.template_image_url ?? null,
+        data.overlay_config ? JSON.stringify(data.overlay_config) : null,
         data.price_hint ?? null,
         data.is_visible ?? true,
         data.sort_order ?? 0,
@@ -820,11 +945,13 @@ export async function updateSignageCatalogOption(
          option_value = COALESCE($3, option_value),
          option_type = COALESCE($4, option_type),
          design_image_url = COALESCE($5, design_image_url),
-         price_hint = COALESCE($6, price_hint),
-         is_visible = COALESCE($7, is_visible),
-         sort_order = COALESCE($8, sort_order),
+         template_image_url = COALESCE($6, template_image_url),
+         overlay_config = COALESCE($7::jsonb, overlay_config),
+         price_hint = COALESCE($8, price_hint),
+         is_visible = COALESCE($9, is_visible),
+         sort_order = COALESCE($10, sort_order),
          updated_at = now()
-       WHERE id = $9
+       WHERE id = $11
        RETURNING *`,
       [
         data.option_group_label ?? null,
@@ -832,6 +959,8 @@ export async function updateSignageCatalogOption(
         data.option_value ?? null,
         data.option_type ?? null,
         data.design_image_url ?? null,
+        data.template_image_url ?? null,
+        data.overlay_config ? JSON.stringify(data.overlay_config) : null,
         data.price_hint ?? null,
         data.is_visible ?? null,
         data.sort_order ?? null,
@@ -917,6 +1046,9 @@ export type SignageOrderItemRow = {
   item_name_snapshot: string
   quantity: number
   selected_options: Record<string, string | string[]>
+  generated_asset_drive_file_id: string | null
+  generated_asset_link: string | null
+  asset_error: string | null
 }
 
 export type SignageOrderWithItems = SignageOrderRow & {
@@ -1234,6 +1366,51 @@ export async function updateSignageOrderStatus(
   })
 }
 
+export async function updateSignageOrderAssetStatus(
+  id: number,
+  status: 'not_started' | 'in_progress' | 'completed' | 'failed'
+): Promise<SignageOrderRow | null> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageOrderRow>(
+      `UPDATE signage_orders
+       SET asset_generation_status = $1, updated_at = now()
+       WHERE id = $2
+       RETURNING *`,
+      [status, id]
+    )
+    return res.rows[0] ?? null
+  })
+}
+
+export async function updateSignageOrderItemAsset(
+  itemId: number,
+  data: {
+    generated_asset_drive_file_id?: string | null
+    generated_asset_link?: string | null
+    asset_error?: string | null
+  }
+): Promise<SignageOrderItemRow | null> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageOrderItemRow>(
+      `UPDATE signage_order_items
+       SET generated_asset_drive_file_id = COALESCE($1, generated_asset_drive_file_id),
+           generated_asset_link = COALESCE($2, generated_asset_link),
+           asset_error = $3
+       WHERE id = $4
+       RETURNING *`,
+      [
+        data.generated_asset_drive_file_id ?? null,
+        data.generated_asset_link ?? null,
+        data.asset_error ?? null,
+        itemId,
+      ]
+    )
+    return res.rows[0] ?? null
+  })
+}
+
 export async function deleteSignageOrder(id: number): Promise<boolean> {
   await ensureTable()
   return withClient(async (c) => {
@@ -1252,5 +1429,68 @@ export async function getDistinctSignageOrderCities(): Promise<string[]> {
        ORDER BY city`
     )
     return res.rows.map((r) => r.city)
+  })
+}
+
+export type SignageDigestOrderRow = {
+  id: number
+  created_at: string
+  stashpoint_id: string | null
+  business_name: string
+  contact_name: string
+  contact_phone: string | null
+  items: Array<{ item_name_snapshot: string; quantity: number; generated_asset_link: string | null }>
+}
+
+export async function listSignageOrdersForDigest(sinceIso: string): Promise<SignageDigestOrderRow[]> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<{
+      id: number
+      created_at: string
+      stashpoint_id: string | null
+      business_name: string
+      contact_name: string
+      contact_phone: string | null
+      item_name_snapshot: string
+      quantity: number
+      generated_asset_link: string | null
+    }>(
+      `SELECT so.id, so.created_at, so.stashpoint_id, so.business_name, so.contact_name, so.contact_phone,
+              soi.item_name_snapshot, soi.quantity, soi.generated_asset_link
+       FROM signage_orders so
+       JOIN signage_order_items soi ON soi.order_id = so.id
+       WHERE so.created_at > $1::timestamptz
+       ORDER BY so.created_at ASC, so.id ASC, soi.id ASC`,
+      [sinceIso]
+    )
+    const grouped = new Map<number, SignageDigestOrderRow>()
+    for (const r of res.rows) {
+      const existing = grouped.get(r.id)
+      if (existing) {
+        existing.items.push({
+          item_name_snapshot: r.item_name_snapshot,
+          quantity: r.quantity,
+          generated_asset_link: r.generated_asset_link,
+        })
+        continue
+      }
+      grouped.set(r.id, {
+        id: r.id,
+        created_at: r.created_at,
+        stashpoint_id: r.stashpoint_id,
+        business_name: r.business_name,
+        contact_name: r.contact_name,
+        contact_phone: r.contact_phone,
+        items: [
+          {
+            item_name_snapshot: r.item_name_snapshot,
+            quantity: r.quantity,
+            generated_asset_link: r.generated_asset_link,
+          },
+        ],
+      })
+    }
+    return [...grouped.values()]
   })
 }

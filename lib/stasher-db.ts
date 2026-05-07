@@ -89,6 +89,8 @@ export type StashpointBusinessMetricsRow = {
   city: string;
   owner_email: string | null;
   owner_phone: string | null;
+  /** Trimmed `first_name` + `last_name` from linked Stasher user, or null if empty. */
+  owner_full_name: string | null;
   poi: string | null;
   address: string | null;
   postal_code: string | null;
@@ -132,6 +134,10 @@ export type StashpointListingFilters = {
   radiusCenters?: Array<{ lat: number; lon: number }>;
   /** Match `hosts.id` for programme-by-host flows; does not change the main SELECT. */
   hostId?: string;
+  /** When set with a positive `limit`, sort by this trailing-30-day metric before applying LIMIT. */
+  rankBy?: 'bookings' | 'revenue';
+  /** Max rows after ordering (e.g. top N for city activation). */
+  limit?: number;
 };
 
 /**
@@ -150,8 +156,7 @@ export async function listStashpointsFromDb(
     i += 1;
   }
   if (filters.hostId !== undefined && filters.hostId !== "") {
-    // Trim + case-fold so UUID / text host ids match how clients send them.
-    extra.push(`AND lower(trim(h.id::text)) = lower(trim($${i}))`);
+    extra.push(`AND h.id::text = $${i}`);
     params.push(filters.hostId);
     i += 1;
   }
@@ -232,6 +237,29 @@ AND EXISTS (
     i += 3;
   }
 
+  let orderSql = `ORDER BY
+    l.name ASC,
+    s.business_name ASC`
+  if (filters.rankBy === 'bookings') {
+    orderSql = `ORDER BY
+    COALESCE(bk.bookings_l30, 0) DESC,
+    l.name ASC,
+    s.business_name ASC`
+  } else if (filters.rankBy === 'revenue') {
+    orderSql = `ORDER BY
+    COALESCE(bk.revenue_l30_gbp, 0) DESC,
+    l.name ASC,
+    s.business_name ASC`
+  }
+
+  let limitSql = ''
+  if (filters.limit !== undefined && Number.isFinite(filters.limit) && filters.limit > 0) {
+    const capped = Math.min(Math.max(1, Math.floor(filters.limit)), 10_000)
+    limitSql = ` LIMIT $${i}`
+    params.push(capped)
+    i += 1
+  }
+
   const sql = `
 WITH opening_hours_summary AS (
     SELECT
@@ -285,6 +313,10 @@ SELECT
     l.name                                   AS city,
     u.email                                  AS owner_email,
     u.phone_number                           AS owner_phone,
+    NULLIF(
+      TRIM(BOTH FROM CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))),
+      ''
+    )                                        AS owner_full_name,
     s.location_name                          AS poi,
     s.address                                AS address,
     s.postal_code                            AS postal_code,
@@ -329,9 +361,7 @@ WHERE s.deactivated_at IS NULL
   AND s.activated_at < CURRENT_DATE
   AND s.new_type NOT LIKE '%locker%'
 ${extra.join("\n")}
-ORDER BY
-    l.name,
-    s.business_name
+${orderSql}${limitSql}
 `;
 
   return queryStasherDb<StashpointBusinessMetricsRow>(sql, params);

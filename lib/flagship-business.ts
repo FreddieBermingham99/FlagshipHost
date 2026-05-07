@@ -147,6 +147,7 @@ export function buildFlagshipPropsFromMetrics(
     topRevenue: overrides.topRevenue,
     ownerEmail: row.owner_email ?? undefined,
     ownerPhone: row.owner_phone ?? undefined,
+    ownerName: row.owner_full_name?.trim() || undefined,
     parisOne: overrides.parisOne,
     parisTwo: overrides.parisTwo,
     madridOne: overrides.madridOne,

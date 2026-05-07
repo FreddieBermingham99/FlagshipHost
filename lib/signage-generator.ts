@@ -1,4 +1,5 @@
 import 'server-only'
+import { queueGenerateSignageForOrder } from '@/lib/signage-automation/generate-for-order'
 
 export type SignageGenerationInput = {
   orderId: number
@@ -36,12 +37,10 @@ export type FulfillmentPayload = {
  * Integrate template rendering (QR + business name) and provider upload later.
  */
 export async function generateSignageAsset(
-  _input: SignageGenerationInput
+  input: SignageGenerationInput
 ): Promise<SignageGenerationResult> {
-  return {
-    ok: false,
-    error: 'Not implemented yet: template rendering pipeline pending',
-  }
+  queueGenerateSignageForOrder(input.orderId)
+  return { ok: true }
 }
 
 /**

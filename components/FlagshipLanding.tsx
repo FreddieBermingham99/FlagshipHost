@@ -50,6 +50,8 @@ export type FlagshipProps = {
   // Business owner contact info (for autofill)
   ownerEmail?: string
   ownerPhone?: string
+  /** Host / owner display name from Stasher (when available). */
+  ownerName?: string
   parisOne?: string
   parisTwo?: string
   madridOne?: string

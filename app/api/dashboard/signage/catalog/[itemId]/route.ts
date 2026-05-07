@@ -29,8 +29,9 @@ export async function PATCH(
   if (!id) return NextResponse.json({ error: 'Invalid item ID' }, { status: 400 })
 
   try {
-    const body = (await req.json()) as Record<string, unknown>
-    if (body.target === 'option') {
+    const patchBody = (await req.json()) as Record<string, unknown>
+    if (patchBody.target === 'option') {
+      const body = patchBody
       const optionId = parseId(String(body.optionId ?? ''))
       if (!optionId) return NextResponse.json({ error: 'Invalid option ID' }, { status: 400 })
       const updated = await updateSignageCatalogOption(optionId, {
@@ -44,6 +45,16 @@ export async function PATCH(
         option_value: typeof body.option_value === 'string' ? body.option_value : undefined,
         design_image_url:
           typeof body.design_image_url === 'string' ? body.design_image_url : undefined,
+        template_image_url:
+          'template_image_url' in body
+            ? body.template_image_url == null
+              ? ''
+              : String(body.template_image_url).trim()
+            : undefined,
+        overlay_config:
+          body.overlay_config && typeof body.overlay_config === 'object'
+            ? (body.overlay_config as Record<string, unknown>)
+            : undefined,
         price_hint: typeof body.price_hint === 'string' ? body.price_hint : undefined,
         is_visible: typeof body.is_visible === 'boolean' ? body.is_visible : undefined,
         sort_order: typeof body.sort_order === 'number' ? body.sort_order : undefined,
@@ -53,12 +64,28 @@ export async function PATCH(
     }
 
     const updated = await updateSignageCatalogItem(id, {
-      name: typeof body.name === 'string' ? body.name : undefined,
-      description: typeof body.description === 'string' ? body.description : undefined,
-      image_url: typeof body.image_url === 'string' ? body.image_url : undefined,
-      max_quantity: typeof body.max_quantity === 'number' ? body.max_quantity : undefined,
-      is_visible: typeof body.is_visible === 'boolean' ? body.is_visible : undefined,
-      sort_order: typeof body.sort_order === 'number' ? body.sort_order : undefined,
+      name: typeof patchBody.name === 'string' ? patchBody.name : undefined,
+      description: typeof patchBody.description === 'string' ? patchBody.description : undefined,
+      image_url: typeof patchBody.image_url === 'string' ? patchBody.image_url : undefined,
+      template_image_url:
+        'template_image_url' in patchBody
+          ? patchBody.template_image_url == null
+            ? ''
+            : String(patchBody.template_image_url).trim()
+          : undefined,
+      requires_customisation:
+        typeof patchBody.requires_customisation === 'boolean'
+          ? patchBody.requires_customisation
+          : undefined,
+      requires_unique_qr:
+        typeof patchBody.requires_unique_qr === 'boolean' ? patchBody.requires_unique_qr : undefined,
+      overlay_config:
+        patchBody.overlay_config && typeof patchBody.overlay_config === 'object'
+          ? (patchBody.overlay_config as Record<string, unknown>)
+          : undefined,
+      max_quantity: typeof patchBody.max_quantity === 'number' ? patchBody.max_quantity : undefined,
+      is_visible: typeof patchBody.is_visible === 'boolean' ? patchBody.is_visible : undefined,
+      sort_order: typeof patchBody.sort_order === 'number' ? patchBody.sort_order : undefined,
     })
     if (!updated) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
     return NextResponse.json({ item: updated })
@@ -95,6 +122,12 @@ export async function POST(
       option_value: typeof body.option_value === 'string' ? body.option_value : body.option_name,
       design_image_url:
         typeof body.design_image_url === 'string' ? body.design_image_url : null,
+      template_image_url:
+        typeof body.template_image_url === 'string' ? body.template_image_url.trim() || null : null,
+      overlay_config:
+        body.overlay_config && typeof body.overlay_config === 'object'
+          ? (body.overlay_config as Record<string, unknown>)
+          : null,
       price_hint: typeof body.price_hint === 'string' ? body.price_hint : null,
       is_visible: typeof body.is_visible === 'boolean' ? body.is_visible : true,
       sort_order: typeof body.sort_order === 'number' ? body.sort_order : 0,
