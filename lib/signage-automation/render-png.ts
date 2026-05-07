@@ -39,26 +39,6 @@ function quadAabb(quad: { corners: readonly { x: number; y: number }[] }): {
   }
 }
 
-function svgTextLayer(
-  canvasW: number,
-  canvasH: number,
-  text: string,
-  color: string,
-  fontSize: number,
-  x: number,
-  y: number
-): Buffer {
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-  const svgTitle = `<svg width="${canvasW}" height="${canvasH}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${x}" y="${y + fontSize}" fill="${color}" font-size="${fontSize}" font-family="Arial, sans-serif">${escaped}</text>
-  </svg>`
-  return Buffer.from(svgTitle)
-}
-
 async function businessNameTexturePng(
   text: string,
   color: string,
@@ -92,10 +72,31 @@ export async function renderSignagePng(params: {
   const layers: sharp.OverlayOptions[] = []
 
   if (params.qrUrl) {
-    const qrQuad = params.overlay.qrQuad
     const qrRect = params.overlay.qrRect
-    if (qrQuad) {
-      // Keep QR a perfect square inside the quad's axis-aligned bounds (no perspective skew).
+    const qrQuad = params.overlay.qrQuad
+    // Prefer explicit rectangles from the mapper; legacy catalog items may only have quads.
+    if (qrRect && qrRect.width > 0 && qrRect.height > 0) {
+      const rw = Math.round(qrRect.width)
+      const rh = Math.round(qrRect.height)
+      const side = Math.max(64, Math.min(4096, Math.min(rw, rh)))
+      const cx = qrRect.x + qrRect.width / 2
+      const cy = qrRect.y + qrRect.height / 2
+      const left = Math.round(cx - side / 2)
+      const top = Math.round(cy - side / 2)
+      const qrBuffer = await QRCode.toBuffer(params.qrUrl, {
+        color: {
+          dark: params.overlay.qrDark || '#000000',
+          light: params.overlay.qrLight || '#ffffff',
+        },
+        margin: 1,
+        width: side,
+      })
+      layers.push({
+        input: await sharp(qrBuffer).resize(side, side).png().toBuffer(),
+        top,
+        left,
+      })
+    } else if (qrQuad) {
       const aabb = quadAabb(qrQuad)
       const rw = aabb.maxX - aabb.minX
       const rh = aabb.maxY - aabb.minY
@@ -117,60 +118,34 @@ export async function renderSignagePng(params: {
         top,
         left,
       })
-    } else if (qrRect) {
-      const rw = Math.round(qrRect.width)
-      const rh = Math.round(qrRect.height)
-      const side = Math.max(64, Math.min(4096, Math.min(rw, rh)))
-      const cx = qrRect.x + qrRect.width / 2
-      const cy = qrRect.y + qrRect.height / 2
-      const left = Math.round(cx - side / 2)
-      const top = Math.round(cy - side / 2)
-      const qrBuffer = await QRCode.toBuffer(params.qrUrl, {
-        color: {
-          dark: params.overlay.qrDark || '#000000',
-          light: params.overlay.qrLight || '#ffffff',
-        },
-        margin: 1,
-        width: side,
-      })
-      layers.push({
-        input: await sharp(qrBuffer).resize(side, side).png().toBuffer(),
-        top,
-        left,
-      })
     }
   }
 
   const biz = params.businessName.trim()
   if (biz) {
+    const bRect = params.overlay.businessNameRect
     const bQuad = params.overlay.businessNameQuad
-    if (bQuad) {
-      // Render text in a flat rectangle matching the quad's bounds (no perspective warp).
+    const font = params.overlay.businessFontSizePx || 42
+    const color = params.overlay.businessTextColor || '#111111'
+
+    if (bRect && bRect.width > 0 && bRect.height > 0) {
+      const texW = Math.max(1, Math.round(bRect.width))
+      const texH = Math.max(1, Math.round(bRect.height))
+      const tex = await businessNameTexturePng(biz, color, font, texW, texH)
+      layers.push({
+        input: tex,
+        top: Math.round(bRect.y),
+        left: Math.round(bRect.x),
+      })
+    } else if (bQuad) {
       const aabb = quadAabb(bQuad)
       const texW = Math.max(1, Math.ceil(aabb.maxX - aabb.minX))
       const texH = Math.max(1, Math.ceil(aabb.maxY - aabb.minY))
-      const font = params.overlay.businessFontSizePx || 42
-      const color = params.overlay.businessTextColor || '#111111'
       const tex = await businessNameTexturePng(biz, color, font, texW, texH)
       layers.push({
         input: tex,
         top: Math.round(aabb.minY),
         left: Math.round(aabb.minX),
-      })
-    } else if (params.overlay.businessNameRect) {
-      const rect = params.overlay.businessNameRect
-      layers.push({
-        input: svgTextLayer(
-          width,
-          height,
-          biz,
-          params.overlay.businessTextColor || '#111111',
-          params.overlay.businessFontSizePx || 42,
-          Math.round(rect.x),
-          Math.round(rect.y)
-        ),
-        top: 0,
-        left: 0,
       })
     }
   }

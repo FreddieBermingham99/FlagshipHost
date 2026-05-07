@@ -15,13 +15,15 @@ export type OverlayQuad = {
 }
 
 export type SignageOverlayConfig = {
-  /** Legacy axis-aligned QR placement; ignored if `qrQuad` is set. */
+  /** Axis-aligned QR placement (preferred). If unset, legacy `qrQuad` may be used. */
   qrRect?: OverlayRect
+  /** Legacy perspective quad; used only when `qrRect` is missing. */
   qrQuad?: OverlayQuad
   qrDark?: string
   qrLight?: string
-  /** Legacy business name anchor; ignored if `businessNameQuad` is set. */
+  /** Axis-aligned business name box (preferred). If unset, legacy `businessNameQuad` may be used. */
   businessNameRect?: OverlayRect
+  /** Legacy quad; used only when `businessNameRect` is missing. */
   businessNameQuad?: OverlayQuad
   businessTextColor?: string
   businessFontSizePx?: number

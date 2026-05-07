@@ -9,10 +9,11 @@ import { Label } from '@/components/ui/label'
 import { SignageTemplateMapper } from '@/components/SignageTemplateMapper'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
 import {
-  defaultBusinessQuad,
-  defaultQrQuad,
+  defaultBusinessRect,
+  defaultQrRect,
   overlayConfigFromCatalog,
-  quadFromRect,
+  overlayRectsOnlyForSave,
+  rectFromQuadAabb,
 } from '@/lib/signage-overlay-ui'
 
 type CatalogOption = {
@@ -172,7 +173,7 @@ export default function SignageCatalogDashboard() {
         template_image_url: editTemplateImageUrl.trim(),
         requires_customisation: !editNoCustomisation,
         requires_unique_qr: editItemRequiresQr,
-        overlay_config: editOverlay as Record<string, unknown>,
+        overlay_config: overlayRectsOnlyForSave(editOverlay) as Record<string, unknown>,
         max_quantity: Math.max(1, editItemMaxQuantity || 1),
       }),
     })
@@ -569,17 +570,18 @@ export default function SignageCatalogDashboard() {
                   onImageSized={(nw, nh) => {
                     setEditOverlay((o) => ({
                       ...o,
-                      qrQuad:
-                        o.qrQuad ?? (o.qrRect ? quadFromRect(o.qrRect) : defaultQrQuad(nw, nh)),
-                      businessNameQuad:
-                        o.businessNameQuad ??
-                        (o.businessNameRect &&
-                        typeof o.businessNameRect.width === 'number' &&
-                        o.businessNameRect.width > 0 &&
-                        typeof o.businessNameRect.height === 'number' &&
-                        o.businessNameRect.height > 0
-                          ? quadFromRect(o.businessNameRect)
-                          : defaultBusinessQuad(nw, nh)),
+                      qrRect:
+                        o.qrRect && o.qrRect.width >= 8 && o.qrRect.height >= 8
+                          ? o.qrRect
+                          : o.qrQuad
+                            ? rectFromQuadAabb(o.qrQuad)
+                            : defaultQrRect(nw, nh),
+                      businessNameRect:
+                        o.businessNameRect && o.businessNameRect.width >= 8 && o.businessNameRect.height >= 8
+                          ? o.businessNameRect
+                          : o.businessNameQuad
+                            ? rectFromQuadAabb(o.businessNameQuad)
+                            : defaultBusinessRect(nw, nh),
                     }))
                   }}
                 />

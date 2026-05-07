@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import type { OverlayPoint, OverlayQuad, SignageOverlayConfig } from '@/lib/signage-automation/types'
+import type { OverlayPoint, SignageOverlayConfig } from '@/lib/signage-automation/types'
 import {
-  defaultBusinessQuad,
-  defaultQrQuad,
-  patchQuadCorner,
-  quadFromRect,
+  defaultBusinessRect,
+  defaultQrRect,
+  patchRectCorner,
   QUAD_CORNER_LABELS,
+  rectCorner,
+  resolveBusinessOverlayRect,
+  resolveQrOverlayRect,
 } from '@/lib/signage-overlay-ui'
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -20,7 +22,7 @@ type Props = {
   imageSrc: string
   overlay: SignageOverlayConfig
   onChange: (next: SignageOverlayConfig) => void
-  /** Called once natural dimensions are known — use to seed default quads in parent state. */
+  /** Called once natural dimensions are known — use to seed default rects in parent state. */
   onImageSized?: (naturalW: number, naturalH: number) => void
 }
 
@@ -66,16 +68,20 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
   )
 
   useEffect(() => {
-    if (dragging === null) return
+    if (dragging === null || naturalW <= 0 || naturalH <= 0) return
     const move = (ev: PointerEvent) => {
-      const quad = layer === 'qr' ? overlay.qrQuad : overlay.businessNameQuad
-      if (!quad) return
       const p = clientToNatural(ev.clientX, ev.clientY)
-      const next =
-        layer === 'qr'
-          ? { ...overlay, qrQuad: patchQuadCorner(quad, dragging, p) }
-          : { ...overlay, businessNameQuad: patchQuadCorner(quad, dragging, p) }
-      onChange(next)
+      if (layer === 'qr') {
+        const base = resolveQrOverlayRect(overlay, naturalW, naturalH)
+        const nextRect = patchRectCorner(base, dragging, p, naturalW, naturalH)
+        const { qrQuad: _q, ...rest } = overlay
+        onChange({ ...rest, qrRect: nextRect })
+      } else {
+        const base = resolveBusinessOverlayRect(overlay, naturalW, naturalH)
+        const nextRect = patchRectCorner(base, dragging, p, naturalW, naturalH)
+        const { businessNameQuad: _b, ...rest } = overlay
+        onChange({ ...rest, businessNameRect: nextRect })
+      }
     }
     const up = () => setDragging(null)
     window.addEventListener('pointermove', move)
@@ -86,30 +92,29 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
     }
-  }, [dragging, layer, overlay, onChange, clientToNatural])
+  }, [dragging, layer, overlay, onChange, clientToNatural, naturalW, naturalH])
 
-  const resetQrFromRect = () => {
-    if (overlay.qrRect) {
-      onChange({ ...overlay, qrQuad: quadFromRect(overlay.qrRect) })
-      return
-    }
+  const resetQr = () => {
     if (naturalW > 0 && naturalH > 0) {
-      onChange({ ...overlay, qrQuad: defaultQrQuad(naturalW, naturalH) })
+      const { qrQuad: _q, ...rest } = overlay
+      onChange({ ...rest, qrRect: defaultQrRect(naturalW, naturalH) })
     }
   }
 
-  const resetBusinessFromRect = () => {
-    if (overlay.businessNameRect && overlay.businessNameRect.width > 0 && overlay.businessNameRect.height > 0) {
-      onChange({ ...overlay, businessNameQuad: quadFromRect(overlay.businessNameRect) })
-      return
-    }
+  const resetBusiness = () => {
     if (naturalW > 0 && naturalH > 0) {
-      onChange({ ...overlay, businessNameQuad: defaultBusinessQuad(naturalW, naturalH) })
+      const { businessNameQuad: _b, ...rest } = overlay
+      onChange({ ...rest, businessNameRect: defaultBusinessRect(naturalW, naturalH) })
     }
   }
 
-  const activeQuad: OverlayQuad | undefined = layer === 'qr' ? overlay.qrQuad : overlay.businessNameQuad
-  const inactiveQuad: OverlayQuad | undefined = layer === 'qr' ? overlay.businessNameQuad : overlay.qrQuad
+  const qrRect =
+    naturalW > 0 && naturalH > 0 ? resolveQrOverlayRect(overlay, naturalW, naturalH) : null
+  const businessRect =
+    naturalW > 0 && naturalH > 0 ? resolveBusinessOverlayRect(overlay, naturalW, naturalH) : null
+
+  const activeRect = layer === 'qr' ? qrRect : businessRect
+  const inactiveRect = layer === 'qr' ? businessRect : qrRect
 
   const cornerPct = (c: OverlayPoint) => ({
     left: `${(c.x / naturalW) * 100}%`,
@@ -136,9 +141,8 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
         </Button>
       </div>
       <p className="text-xs text-slate-500">
-        Corners are <strong>top-left, top-right, bottom-right, bottom-left</strong> in template pixel space. Drag the
-        handles for the selected region. Use a regular rectangle (e.g. storefront perspective) by lining up the
-        corners.
+        Regions are <strong>axis-aligned rectangles</strong> only. Drag a corner to resize; opposite corner stays fixed.
+        Legacy items stored as skewed quads are shown as their bounding rectangle — save to store rectangles only.
       </p>
       <div className="relative inline-block max-w-full overflow-auto rounded-md border bg-slate-100">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -149,36 +153,47 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
           className="relative z-0 block max-h-[min(70vh,560px)] w-auto max-w-full"
           onLoad={onImgLoad}
         />
-        {naturalW > 0 && naturalH > 0 && (
+        {naturalW > 0 && naturalH > 0 && inactiveRect && (
           <svg
             className="pointer-events-none absolute left-0 top-0 z-[1] h-full w-full"
             viewBox={`0 0 ${naturalW} ${naturalH}`}
             preserveAspectRatio="none"
           >
-            {inactiveQuad && (
-              <polygon
-                points={inactiveQuad.corners.map((c) => `${c.x},${c.y}`).join(' ')}
-                fill="none"
-                stroke={layer === 'qr' ? 'rgba(34,197,94,0.45)' : 'rgba(59,130,246,0.45)'}
-                strokeWidth={Math.max(2, naturalW / 400)}
-                vectorEffect="non-scaling-stroke"
-              />
-            )}
-            {activeQuad && (
-              <polygon
-                points={activeQuad.corners.map((c) => `${c.x},${c.y}`).join(' ')}
-                fill="none"
-                stroke={layer === 'qr' ? 'rgb(37,99,235)' : 'rgb(22,163,74)'}
-                strokeWidth={Math.max(2, naturalW / 400)}
-                vectorEffect="non-scaling-stroke"
-              />
-            )}
+            <rect
+              x={inactiveRect.x}
+              y={inactiveRect.y}
+              width={inactiveRect.width}
+              height={inactiveRect.height}
+              fill="none"
+              stroke={layer === 'qr' ? 'rgba(34,197,94,0.45)' : 'rgba(59,130,246,0.45)'}
+              strokeWidth={Math.max(2, naturalW / 400)}
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
+        {naturalW > 0 && naturalH > 0 && activeRect && (
+          <svg
+            className="pointer-events-none absolute left-0 top-0 z-[1] h-full w-full"
+            viewBox={`0 0 ${naturalW} ${naturalH}`}
+            preserveAspectRatio="none"
+          >
+            <rect
+              x={activeRect.x}
+              y={activeRect.y}
+              width={activeRect.width}
+              height={activeRect.height}
+              fill="none"
+              stroke={layer === 'qr' ? 'rgb(37,99,235)' : 'rgb(22,163,74)'}
+              strokeWidth={Math.max(2, naturalW / 400)}
+              vectorEffect="non-scaling-stroke"
+            />
           </svg>
         )}
         {naturalW > 0 &&
           naturalH > 0 &&
-          activeQuad &&
-          activeQuad.corners.map((c, i) => {
+          activeRect &&
+          ([0, 1, 2, 3] as const).map((i) => {
+            const c = rectCorner(activeRect, i)
             const pct = cornerPct(c)
             const isActiveCorner = dragging === i
             return (
@@ -193,7 +208,7 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
                 onPointerDown={(ev) => {
                   ev.preventDefault()
                   ev.stopPropagation()
-                  setDragging(i as 0 | 1 | 2 | 3)
+                  setDragging(i)
                 }}
               />
             )
@@ -201,11 +216,13 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
       </div>
       {naturalW > 0 && naturalH > 0 && (
         <div className="flex flex-wrap gap-2 text-xs">
-          <span className="text-slate-500">Image: {naturalW}×{naturalH}px</span>
-          <Button size="sm" type="button" variant="outline" className="h-7 text-xs" onClick={resetQrFromRect}>
+          <span className="text-slate-500">
+            Image: {naturalW}×{naturalH}px
+          </span>
+          <Button size="sm" type="button" variant="outline" className="h-7 text-xs" onClick={resetQr}>
             Reset QR rectangle
           </Button>
-          <Button size="sm" type="button" variant="outline" className="h-7 text-xs" onClick={resetBusinessFromRect}>
+          <Button size="sm" type="button" variant="outline" className="h-7 text-xs" onClick={resetBusiness}>
             Reset name rectangle
           </Button>
         </div>
