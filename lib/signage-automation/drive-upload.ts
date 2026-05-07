@@ -8,6 +8,19 @@ import { Readable } from 'stream'
 /** Convention: drop the GCP service account JSON here (gitignored). No env var needed locally. */
 export const DEFAULT_LOCAL_CREDENTIALS_REL = 'secrets/google-signage-credentials.json'
 
+/** Find gitignored credentials when cwd is repo root or a subfolder (e.g. Next.js sometimes differs). */
+function findLocalCredentialsFile(): string | null {
+  let dir = process.cwd()
+  for (let depth = 0; depth < 6; depth++) {
+    const candidate = path.join(dir, DEFAULT_LOCAL_CREDENTIALS_REL)
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
 /** Read key file as UTF-8; handle UTF-8 BOM and UTF-16 LE (some Windows editors). */
 function readCredentialsFile(abs: string): string {
   const buf = fs.readFileSync(abs)
@@ -43,13 +56,13 @@ function loadCredentialsRaw(): string {
     }
   }
 
-  const defaultAbs = path.join(process.cwd(), DEFAULT_LOCAL_CREDENTIALS_REL)
-  if (fs.existsSync(defaultAbs)) {
+  const localPath = findLocalCredentialsFile()
+  if (localPath) {
     try {
-      return readCredentialsFile(defaultAbs)
+      return readCredentialsFile(localPath)
     } catch (e) {
       throw new Error(
-        `Could not read ${defaultAbs}: ${e instanceof Error ? e.message : String(e)}`
+        `Could not read ${localPath}: ${e instanceof Error ? e.message : String(e)}`
       )
     }
   }
@@ -57,14 +70,24 @@ function loadCredentialsRaw(): string {
   const inline = process.env.GOOGLE_SIGNAGE_DRIVE_CREDENTIALS?.trim()
   if (inline) return inline
 
+  const defaultGuess = path.join(process.cwd(), DEFAULT_LOCAL_CREDENTIALS_REL)
+  const onVercel = Boolean(process.env.VERCEL)
+
+  if (onVercel) {
+    throw new Error(
+      'Google Drive credentials are not set for this deployment. Gitignored files (secrets/) are not uploaded to Vercel. ' +
+        'In Vercel → Project → Settings → Environment Variables, add GOOGLE_SIGNAGE_DRIVE_CREDENTIALS_BASE64 ' +
+        '(run `npm run drive-credentials-base64 -- secrets/google-signage-credentials.json` locally and paste the output). ' +
+        'Also set GOOGLE_SIGNAGE_DRIVE_FOLDER_ID or configure the folder in Dashboard → Signage automation. Redeploy after saving env vars.'
+    )
+  }
+
   throw new Error(
-    'Google Drive credentials not configured. Easiest locally: save your service account JSON as\n' +
-      `  ${DEFAULT_LOCAL_CREDENTIALS_REL}\n` +
-      '(gitignored; never commit it). Or set one of:\n' +
-      '  • GOOGLE_SIGNAGE_DRIVE_CREDENTIALS_PATH — path to the JSON file\n' +
-      '  • GOOGLE_SIGNAGE_DRIVE_CREDENTIALS_BASE64 — base64 of the file (e.g. npm run drive-credentials-base64 -- ./key.json)\n' +
-      '  • GOOGLE_SIGNAGE_DRIVE_CREDENTIALS — single-line JSON only (fragile in .env)\n' +
-      'Restart `npm run dev` after changes. Share the Drive folder with the service account email (Editor).'
+    'Google Drive credentials not configured.\n' +
+      `• Looked for ${DEFAULT_LOCAL_CREDENTIALS_REL} starting from cwd ${process.cwd()} (also searched parent folders).\n` +
+      `• Expected at ${defaultGuess} — exists: ${fs.existsSync(defaultGuess)}\n` +
+      '• Add the key file, or set GOOGLE_SIGNAGE_DRIVE_CREDENTIALS_PATH to an absolute path, or GOOGLE_SIGNAGE_DRIVE_CREDENTIALS_BASE64.\n' +
+      'Restart `npm run dev` after editing .env.local. Share the Drive folder with the service account email (Editor).'
   )
 }
 

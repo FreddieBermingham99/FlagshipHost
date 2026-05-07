@@ -16,6 +16,19 @@ if (!rel) {
 }
 
 const abs = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel)
-const buf = fs.readFileSync(abs)
+let buf
+try {
+  buf = fs.readFileSync(abs)
+} catch (e) {
+  if (e && e.code === 'ENOENT') {
+    console.error(`File not found: ${abs}`)
+    console.error(
+      'Use the real path to your GCP service account JSON (filename usually ends in .json). ' +
+        'If you saved it as secrets/google-signage-credentials without an extension, rename it to google-signage-credentials.json.'
+    )
+    process.exit(1)
+  }
+  throw e
+}
 process.stdout.write(buf.toString('base64'))
 process.stdout.write('\n')
