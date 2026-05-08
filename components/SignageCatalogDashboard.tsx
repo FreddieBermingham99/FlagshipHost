@@ -80,9 +80,17 @@ function cloneOverlayConfig(input?: SignageOverlayConfig): SignageOverlayConfig 
   return {
     ...input,
     qrRect: input.qrRect ? { ...input.qrRect } : undefined,
-    qrQuad: input.qrQuad ? input.qrQuad.map((p) => ({ ...p })) : undefined,
+    qrQuad: input.qrQuad
+      ? {
+          corners: input.qrQuad.corners.map((p) => ({ ...p })),
+        }
+      : undefined,
     businessNameRect: input.businessNameRect ? { ...input.businessNameRect } : undefined,
-    businessNameQuad: input.businessNameQuad ? input.businessNameQuad.map((p) => ({ ...p })) : undefined,
+    businessNameQuad: input.businessNameQuad
+      ? {
+          corners: input.businessNameQuad.corners.map((p) => ({ ...p })),
+        }
+      : undefined,
   }
 }
 
