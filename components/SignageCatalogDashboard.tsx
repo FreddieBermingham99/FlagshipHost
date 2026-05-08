@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -34,7 +35,6 @@ type CatalogItem = {
   name: string
   description: string | null
   image_url: string | null
-  template_image_url?: string | null
   template_image_url?: string | null
   requires_customisation?: boolean
   requires_unique_qr?: boolean
@@ -615,9 +615,11 @@ export default function SignageCatalogDashboard() {
                     {item.image_url && (
                       <div className="mb-3">
                         <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400">Display</p>
-                        <img
+                        <Image
                           src={item.image_url}
                           alt={item.name}
+                          width={96}
+                          height={96}
                           className="h-24 w-24 rounded-md border object-cover"
                         />
                       </div>
@@ -635,9 +637,11 @@ export default function SignageCatalogDashboard() {
                                 {opt.option_group_label}: {opt.option_name}
                               </span>
                               {opt.option_type === 'design' && opt.design_image_url && (
-                                <img
+                                <Image
                                   src={opt.design_image_url}
                                   alt={opt.option_name}
+                                  width={32}
+                                  height={32}
                                   className="h-8 w-8 rounded border object-cover"
                                 />
                               )}
@@ -1117,7 +1121,13 @@ export default function SignageCatalogDashboard() {
                     />
                   </div>
                   {designImageDataUrl && (
-                    <img src={designImageDataUrl} alt="Design preview" className="h-24 w-24 rounded border object-cover" />
+                    <Image
+                      src={designImageDataUrl}
+                      alt="Design preview"
+                      width={96}
+                      height={96}
+                      className="h-24 w-24 rounded border object-cover"
+                    />
                   )}
                 </div>
               )}
