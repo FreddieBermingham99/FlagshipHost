@@ -82,13 +82,23 @@ function cloneOverlayConfig(input?: SignageOverlayConfig): SignageOverlayConfig 
     qrRect: input.qrRect ? { ...input.qrRect } : undefined,
     qrQuad: input.qrQuad
       ? {
-          corners: input.qrQuad.corners.map((p) => ({ ...p })),
+          corners: [
+            { ...input.qrQuad.corners[0] },
+            { ...input.qrQuad.corners[1] },
+            { ...input.qrQuad.corners[2] },
+            { ...input.qrQuad.corners[3] },
+          ],
         }
       : undefined,
     businessNameRect: input.businessNameRect ? { ...input.businessNameRect } : undefined,
     businessNameQuad: input.businessNameQuad
       ? {
-          corners: input.businessNameQuad.corners.map((p) => ({ ...p })),
+          corners: [
+            { ...input.businessNameQuad.corners[0] },
+            { ...input.businessNameQuad.corners[1] },
+            { ...input.businessNameQuad.corners[2] },
+            { ...input.businessNameQuad.corners[3] },
+          ],
         }
       : undefined,
   }
