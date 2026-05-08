@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,6 +24,7 @@ type CatalogOption = {
   option_value: string
   design_image_url?: string | null
   template_image_url?: string | null
+  overlay_config?: Record<string, unknown> | null
   is_visible: boolean
 }
 
@@ -67,6 +68,7 @@ export default function SignageCatalogDashboard() {
   const [designName, setDesignName] = useState('')
   const [designImageDataUrl, setDesignImageDataUrl] = useState('')
   const [optionTemplateDataUrl, setOptionTemplateDataUrl] = useState('')
+  const [optionOverlay, setOptionOverlay] = useState<SignageOverlayConfig>({})
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
   const [editItemName, setEditItemName] = useState('')
   const [editItemDescription, setEditItemDescription] = useState('')
@@ -77,6 +79,10 @@ export default function SignageCatalogDashboard() {
   const [editNoCustomisation, setEditNoCustomisation] = useState(false)
   const [editOverlay, setEditOverlay] = useState<SignageOverlayConfig>({})
   const [editingOption, setEditingOption] = useState<{ itemId: number; option: CatalogOption } | null>(null)
+  const optionParentItem = useMemo(
+    () => items.find((x) => x.id === optionItemId) ?? null,
+    [items, optionItemId]
+  )
 
   const fetchItems = useCallback(async () => {
     setLoading(true)
@@ -139,10 +145,13 @@ export default function SignageCatalogDashboard() {
     setDesignName('')
     setDesignImageDataUrl('')
     setOptionTemplateDataUrl('')
+    const parent = items.find((x) => x.id === itemId)
+    setOptionOverlay(overlayConfigFromCatalog(parent?.overlay_config))
   }
 
   const closeAddOptionModal = () => {
     setOptionItemId(null)
+    setOptionOverlay({})
   }
 
   const openEditItemModal = (item: CatalogItem) => {
@@ -190,7 +199,13 @@ export default function SignageCatalogDashboard() {
         : 'size'
     setOptionType(type)
     setOptionTemplateDataUrl(option.template_image_url?.trim() ? option.template_image_url : '')
-    if (type === 'size') {
+    const parent = items.find((x) => x.id === itemId)
+    setOptionOverlay(
+      option.overlay_config && typeof option.overlay_config === 'object'
+        ? overlayConfigFromCatalog(option.overlay_config)
+        : overlayConfigFromCatalog(parent?.overlay_config)
+    )
+    if (type === 'size' || type === 'language') {
       setSizeValue(option.option_name || '')
       setDesignName('')
       setDesignImageDataUrl('')
@@ -204,6 +219,7 @@ export default function SignageCatalogDashboard() {
   const closeEditOptionModal = () => {
     setEditingOption(null)
     setOptionItemId(null)
+    setOptionOverlay({})
   }
 
   const onDesignImageFile = async (file: File | null) => {
@@ -231,21 +247,30 @@ export default function SignageCatalogDashboard() {
       return
     }
 
-    await fetch(`/api/dashboard/signage/catalog/${optionItemId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        option_type: optionType,
-        option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
-        option_name: optionName,
-        option_value: optionName,
-        design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
-        template_image_url: optionTemplateDataUrl.trim() || null,
-        is_visible: true,
-      }),
-    })
+    const targetItemId = optionItemId
+    const payload = {
+      option_type: optionType,
+      option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
+      option_name: optionName,
+      option_value: optionName,
+      design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
+      template_image_url: optionTemplateDataUrl.trim() || null,
+      overlay_config: overlayRectsOnlyForSave(optionOverlay) as Record<string, unknown>,
+      is_visible: true,
+    }
     closeAddOptionModal()
-    fetchItems()
+    void (async () => {
+      const res = await fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        window.alert(typeof data.error === 'string' ? data.error : 'Failed to save option')
+      }
+      fetchItems()
+    })()
   }
 
   const saveOptionEdit = async () => {
@@ -257,22 +282,31 @@ export default function SignageCatalogDashboard() {
       window.alert(isSize ? 'Please enter a size.' : isLanguage ? 'Please enter a language.' : 'Please enter a design name.')
       return
     }
-    await fetch(`/api/dashboard/signage/catalog/${editingOption.itemId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        target: 'option',
-        optionId: editingOption.option.id,
-        option_type: optionType,
-        option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
-        option_name: optionName,
-        option_value: optionName,
-        design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
-        template_image_url: optionTemplateDataUrl.trim(),
-      }),
-    })
+    const targetItemId = editingOption.itemId
+    const payload = {
+      target: 'option',
+      optionId: editingOption.option.id,
+      option_type: optionType,
+      option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
+      option_name: optionName,
+      option_value: optionName,
+      design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
+      template_image_url: optionTemplateDataUrl.trim(),
+      overlay_config: overlayRectsOnlyForSave(optionOverlay) as Record<string, unknown>,
+    }
     closeEditOptionModal()
-    fetchItems()
+    void (async () => {
+      const res = await fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        window.alert(typeof data.error === 'string' ? data.error : 'Failed to save option')
+      }
+      fetchItems()
+    })()
   }
 
   const deleteOption = async (itemId: number, optionId: number) => {
@@ -632,7 +666,7 @@ export default function SignageCatalogDashboard() {
           onClick={closeAddOptionModal}
         >
           <Card
-            className="w-full max-w-md"
+            className="w-full max-w-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <CardHeader>
@@ -732,6 +766,35 @@ export default function SignageCatalogDashboard() {
                   className="text-xs"
                 />
               </div>
+              {optionType !== 'size' && (
+                <SignageTemplateMapper
+                  imageSrc={
+                    optionTemplateDataUrl.trim() ||
+                    optionParentItem?.template_image_url?.trim() ||
+                    optionParentItem?.image_url ||
+                    ''
+                  }
+                  overlay={optionOverlay}
+                  onChange={setOptionOverlay}
+                  onImageSized={(nw, nh) => {
+                    setOptionOverlay((o) => ({
+                      ...o,
+                      qrRect:
+                        o.qrRect && o.qrRect.width >= 8 && o.qrRect.height >= 8
+                          ? o.qrRect
+                          : o.qrQuad
+                            ? rectFromQuadAabb(o.qrQuad)
+                            : defaultQrRect(nw, nh),
+                      businessNameRect:
+                        o.businessNameRect && o.businessNameRect.width >= 8 && o.businessNameRect.height >= 8
+                          ? o.businessNameRect
+                          : o.businessNameQuad
+                            ? rectFromQuadAabb(o.businessNameQuad)
+                            : defaultBusinessRect(nw, nh),
+                    }))
+                  }}
+                />
+              )}
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={closeAddOptionModal}>
