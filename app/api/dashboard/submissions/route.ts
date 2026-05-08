@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireDashboardSessionApi } from '@/lib/require-dashboard-session'
 import {
+  deleteSubmissions,
   isSubmissionsDbConfigured,
   listSubmissions,
   getDistinctCities,
@@ -179,6 +180,38 @@ export async function GET(req: Request) {
     console.error('[dashboard/submissions]', e)
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Failed to load submissions' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(req: Request) {
+  const authErr = requireDashboardSessionApi()
+  if (authErr) return authErr
+
+  if (!isSubmissionsDbConfigured()) {
+    return NextResponse.json(
+      { error: 'Submissions database is not configured. Set SUBMISSIONS_DATABASE_URL in .env.local.' },
+      { status: 503 }
+    )
+  }
+
+  try {
+    const body = (await req.json()) as { ids?: unknown }
+    const rawIds = Array.isArray(body?.ids) ? body.ids : []
+    const ids = rawIds
+      .map((x) => Number(x))
+      .filter((x) => Number.isFinite(x) && x > 0)
+      .map((x) => Math.floor(x))
+    if (ids.length === 0) {
+      return NextResponse.json({ error: 'ids must be a non-empty array of positive integers' }, { status: 400 })
+    }
+    const deleted = await deleteSubmissions(ids)
+    return NextResponse.json({ ok: true, deleted })
+  } catch (e) {
+    console.error('[dashboard/submissions/delete-many]', e)
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Failed to delete submissions' },
       { status: 500 }
     )
   }

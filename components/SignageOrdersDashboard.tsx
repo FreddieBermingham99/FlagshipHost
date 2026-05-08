@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   XCircle,
   Truck,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -130,6 +131,7 @@ function FilterPill({
 
 export default function SignageOrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [selected, setSelected] = useState<OrderDetail | null>(null)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -182,6 +184,17 @@ export default function SignageOrdersDashboard() {
   useEffect(() => {
     fetchOrders()
   }, [fetchOrders])
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const idsOnPage = new Set(orders.map((o) => o.id))
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (idsOnPage.has(id)) next.add(id)
+      }
+      return next
+    })
+  }, [orders])
 
   const toggleStatusFilter = (val: string) => {
     setPage(1)
@@ -238,7 +251,49 @@ export default function SignageOrdersDashboard() {
     fetchOrders()
   }
 
+  const toggleOrderSelection = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const toggleAllVisible = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        orders.forEach((o) => next.add(o.id))
+      } else {
+        orders.forEach((o) => next.delete(o.id))
+      }
+      return next
+    })
+  }
+
+  const bulkDeleteOrders = async () => {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    const ok = window.confirm(`Delete ${ids.length} selected order(s)? This cannot be undone.`)
+    if (!ok) return
+    const res = await fetch('/api/dashboard/signage/orders', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      window.alert(typeof data.error === 'string' ? data.error : 'Failed to bulk delete orders')
+      return
+    }
+    setSelectedIds(new Set())
+    setSelected(null)
+    fetchOrders()
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / limit))
+  const allVisibleSelected = orders.length > 0 && orders.every((o) => selectedIds.has(o.id))
 
   useEffect(() => {
     void (async () => {
@@ -362,6 +417,28 @@ export default function SignageOrdersDashboard() {
                 </select>
               </div>
             )}
+
+            <div className="mt-4 flex items-center justify-between">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={(e) => toggleAllVisible(e.target.checked)}
+                  disabled={orders.length === 0}
+                />
+                Select all visible ({orders.length})
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-red-600"
+                disabled={selectedIds.size === 0}
+                onClick={bulkDeleteOrders}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Delete selected ({selectedIds.size})
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -377,15 +454,25 @@ export default function SignageOrdersDashboard() {
             ) : (
               orders.map((o) => (
                 <div key={o.id} className="flex items-center justify-between rounded border bg-white px-3 py-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">{o.business_name}</p>
-                      <SourceBadge source={o.source} />
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(o.id)}
+                      onChange={(e) => toggleOrderSelection(o.id, e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Select order ${o.id}`}
+                      className="mt-1"
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{o.business_name}</p>
+                        <SourceBadge source={o.source} />
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        #{o.id} • {o.city || '—'} • {o.contact_name}
+                        {o.stashpoint_id && <> • SP {o.stashpoint_id}</>}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-500">
-                      #{o.id} • {o.city || '—'} • {o.contact_name}
-                      {o.stashpoint_id && <> • SP {o.stashpoint_id}</>}
-                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={o.status} />

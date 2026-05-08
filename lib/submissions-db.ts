@@ -462,6 +462,16 @@ export async function deleteSubmission(id: number): Promise<boolean> {
   })
 }
 
+export async function deleteSubmissions(ids: number[]): Promise<number> {
+  const uniqueIds = [...new Set(ids.map((id) => Math.floor(id)).filter((id) => Number.isFinite(id) && id > 0))]
+  if (uniqueIds.length === 0) return 0
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query('DELETE FROM submissions WHERE id = ANY($1::int[])', [uniqueIds])
+    return res.rowCount ?? 0
+  })
+}
+
 export async function getDistinctCities(): Promise<string[]> {
   await ensureTable()
   return withClient(async (c) => {
@@ -1416,6 +1426,16 @@ export async function deleteSignageOrder(id: number): Promise<boolean> {
   return withClient(async (c) => {
     const res = await c.query('DELETE FROM signage_orders WHERE id = $1', [id])
     return (res.rowCount ?? 0) > 0
+  })
+}
+
+export async function deleteSignageOrders(ids: number[]): Promise<number> {
+  const uniqueIds = [...new Set(ids.map((id) => Math.floor(id)).filter((id) => Number.isFinite(id) && id > 0))]
+  if (uniqueIds.length === 0) return 0
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query('DELETE FROM signage_orders WHERE id = ANY($1::int[])', [uniqueIds])
+    return res.rowCount ?? 0
   })
 }
 

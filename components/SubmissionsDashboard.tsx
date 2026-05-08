@@ -327,6 +327,7 @@ function SubmissionDetail({
 
 export default function SubmissionsDashboard() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -385,6 +386,17 @@ export default function SubmissionsDashboard() {
     fetchSubmissions()
   }, [fetchSubmissions])
 
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const idsOnPage = new Set(submissions.map((s) => s.id))
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (idsOnPage.has(id)) next.add(id)
+      }
+      return next
+    })
+  }, [submissions])
+
   const handleStatusChange = async (id: number, status: string) => {
     try {
       const res = await fetch(`/api/dashboard/submissions/${id}`, {
@@ -413,6 +425,47 @@ export default function SubmissionsDashboard() {
     } catch {
       alert('Failed to delete submission')
     }
+  }
+
+  const toggleSubmissionSelection = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const toggleAllVisible = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        submissions.forEach((s) => next.add(s.id))
+      } else {
+        submissions.forEach((s) => next.delete(s.id))
+      }
+      return next
+    })
+  }
+
+  const bulkDeleteSubmissions = async () => {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    const ok = window.confirm(`Delete ${ids.length} selected submission(s)? This cannot be undone.`)
+    if (!ok) return
+    const res = await fetch('/api/dashboard/submissions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(typeof data.error === 'string' ? data.error : 'Failed to bulk delete submissions')
+      return
+    }
+    setSelectedIds(new Set())
+    setSelected(null)
+    fetchSubmissions()
   }
 
   const saveRequirements = async () => {
@@ -450,6 +503,7 @@ export default function SubmissionsDashboard() {
   }
 
   const totalPages = Math.ceil(total / limit)
+  const allVisibleSelected = submissions.length > 0 && submissions.every((s) => selectedIds.has(s.id))
   const activeFilterCount =
     filters.status.length + (filters.city ? 1 : 0) + filters.tier.length + (filters.stashpoint_id ? 1 : 0)
 
@@ -713,10 +767,32 @@ export default function SubmissionsDashboard() {
 
         {/* Table */}
         <Card>
+          <div className="flex items-center justify-between border-b bg-slate-50/60 px-4 py-2">
+            <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={(e) => toggleAllVisible(e.target.checked)}
+                disabled={submissions.length === 0}
+              />
+              Select all visible ({submissions.length})
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-600"
+              disabled={selectedIds.size === 0}
+              onClick={bulkDeleteSubmissions}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete selected ({selectedIds.size})
+            </Button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left">
+                  <th className="px-4 py-3 font-medium text-slate-500">Select</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Business</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Contact</th>
                   <th className="px-4 py-3 font-medium text-slate-500">City</th>
@@ -732,13 +808,13 @@ export default function SubmissionsDashboard() {
               <tbody>
                 {loading && submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={11} className="px-4 py-12 text-center text-slate-400">
                       Loading submissions...
                     </td>
                   </tr>
                 ) : submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={11} className="px-4 py-12 text-center text-slate-400">
                       No submissions found
                     </td>
                   </tr>
@@ -752,6 +828,15 @@ export default function SubmissionsDashboard() {
                         className="border-b transition hover:bg-slate-50 cursor-pointer"
                         onClick={() => setSelected(s)}
                       >
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(s.id)}
+                            onChange={(e) => toggleSubmissionSelection(s.id, e.target.checked)}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Select submission ${s.id}`}
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <p className="font-medium">{s.business_name}</p>
                           {s.stashpoint_id && (

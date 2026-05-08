@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireDashboardSessionApi } from '@/lib/require-dashboard-session'
 import {
+  deleteSignageOrders,
   getDistinctSignageOrderCities,
   isSubmissionsDbConfigured,
   listSignageOrders,
@@ -49,6 +50,32 @@ export async function GET(req: Request) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Failed to load signage orders' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(req: Request) {
+  const authErr = requireDashboardSessionApi()
+  if (authErr) return authErr
+  if (!isSubmissionsDbConfigured()) {
+    return NextResponse.json({ error: 'Submissions DB not configured' }, { status: 503 })
+  }
+  try {
+    const body = (await req.json()) as { ids?: unknown }
+    const rawIds = Array.isArray(body?.ids) ? body.ids : []
+    const ids = rawIds
+      .map((x) => Number(x))
+      .filter((x) => Number.isFinite(x) && x > 0)
+      .map((x) => Math.floor(x))
+    if (ids.length === 0) {
+      return NextResponse.json({ error: 'ids must be a non-empty array of positive integers' }, { status: 400 })
+    }
+    const deleted = await deleteSignageOrders(ids)
+    return NextResponse.json({ ok: true, deleted })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Failed to delete orders' },
       { status: 500 }
     )
   }
