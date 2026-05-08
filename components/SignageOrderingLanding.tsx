@@ -91,6 +91,37 @@ function findDefaultOptionValue(
   return match?.option_value ?? null
 }
 
+function groupedOptionsByType(item: CatalogItem): {
+  design: CatalogOption[]
+  language: CatalogOption[]
+  size: CatalogOption[]
+  other: Record<string, CatalogOption[]>
+} {
+  const other: Record<string, CatalogOption[]> = {}
+  const design = item.options.filter((opt) => opt.option_type === 'design')
+  const language = item.options.filter((opt) => opt.option_type === 'language')
+  const size = item.options.filter((opt) => opt.option_type === 'size')
+  for (const opt of item.options) {
+    const t = opt.option_type
+    if (t === 'design' || t === 'language' || t === 'size') continue
+    if (!other[opt.option_group_label]) other[opt.option_group_label] = []
+    other[opt.option_group_label].push(opt)
+  }
+  return { design, language, size, other }
+}
+
+function selectedValueForType(
+  selectedOptions: Record<string, string> | undefined,
+  options: CatalogOption[]
+): string {
+  if (!selectedOptions || options.length === 0) return ''
+  for (const opt of options) {
+    const v = selectedOptions[opt.option_group_label]
+    if (v && String(v) === String(opt.option_value)) return String(v)
+  }
+  return ''
+}
+
 export default function SignageOrderingLanding({
   stashpointId,
   businessName,
@@ -160,6 +191,10 @@ export default function SignageOrderingLanding({
   const modalItem = useMemo(
     () => items.find((item) => String(item.id) === optionModalItemId) ?? null,
     [items, optionModalItemId]
+  )
+  const modalTypedOptions = useMemo(
+    () => (modalItem ? groupedOptionsByType(modalItem) : null),
+    [modalItem]
   )
 
   const setQuantity = (itemId: string, quantity: number) => {
@@ -277,11 +312,24 @@ export default function SignageOrderingLanding({
 
     const selectedItems: SelectedItem[] = selectedCatalogItems.map((item) => {
       const cfg = configByItemId[String(item.id)]
+      const typed = groupedOptionsByType(item)
+      const selectedOptions = cfg?.selected_options || {}
+      const selectedDesign = selectedValueForType(selectedOptions, typed.design)
+      const selectedLanguage = selectedValueForType(selectedOptions, typed.language)
+      const selectedSize = selectedValueForType(selectedOptions, typed.size)
       return {
         catalog_item_id: item.id,
         item_name_snapshot: item.name,
         quantity: Math.max(1, cfg?.quantity ?? 1),
-        selected_options: cfg?.selected_options || {},
+        selected_options: {
+          ...selectedOptions,
+          __variation_design: selectedDesign,
+          __variation_language: selectedLanguage,
+          __variation_size: selectedSize,
+          __variation_signature: [selectedDesign, selectedLanguage, selectedSize]
+            .filter(Boolean)
+            .join(' | '),
+        },
       }
     })
 
@@ -296,7 +344,7 @@ export default function SignageOrderingLanding({
         catalog_item_id: item.id,
         item_name_snapshot: item.name,
         quantity: Math.max(1, cfg?.quantity ?? 1),
-        selected_options: cfg?.selected_options || {},
+        selected_options: selectedItems.find((s) => s.catalog_item_id === item.id)?.selected_options || {},
       }
       for (const spId of targetIds) {
         if (!targetedByStashpoint.has(spId)) targetedByStashpoint.set(spId, [])
@@ -502,55 +550,118 @@ export default function SignageOrderingLanding({
               <CardTitle className="text-base">Choose options: {modalItem.name}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {Object.entries(
-                modalItem.options.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
-                  if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
-                  acc[opt.option_group_label].push(opt)
-                  return acc
-                }, {})
-              ).map(([groupLabel, opts]) => (
-                <div key={groupLabel}>
-                  <div className="mb-1 flex items-center gap-2">
-                    <label className="text-sm font-medium">{groupLabel}</label>
-                    {opts[0]?.option_type && (
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] uppercase text-slate-600">
-                        {opts[0].option_type}
-                      </span>
-                    )}
-                  </div>
-                  <select
-                    className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
-                    value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
-                    onChange={(e) =>
-                      setOption(String(modalItem.id), groupLabel, e.target.value)
-                    }
-                  >
-                    <option value="">Select...</option>
-                    {opts.map((opt) => (
-                      <option key={opt.id} value={opt.option_value}>
-                        {opt.option_name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {opts.some((opt) => opt.option_type === 'design' && opt.design_image_url) && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {opts
-                        .filter((opt) => opt.option_type === 'design' && opt.design_image_url)
-                        .map((opt) => (
-                          <div key={opt.id} className="rounded border bg-slate-50 p-1">
-                            <img
-                              src={opt.design_image_url || ''}
-                              alt={opt.option_name}
-                              className="h-12 w-12 rounded object-cover"
-                            />
-                            <p className="mt-1 text-[10px] text-slate-600">{opt.option_name}</p>
-                          </div>
-                        ))}
+              {modalTypedOptions && (
+                <>
+                  {modalTypedOptions.design.length > 0 && (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-sm font-medium text-slate-800">1) Choose a design</p>
+                      <p className="mb-2 text-xs text-slate-500">
+                        Your default language is{' '}
+                        <span className="font-semibold uppercase">{resolvedLocale}</span>.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {modalTypedOptions.design.map((opt) => {
+                          const selected =
+                            configByItemId[String(modalItem.id)]?.selected_options?.[
+                              opt.option_group_label
+                            ] === opt.option_value
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              className={`rounded border p-2 text-left ${selected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}
+                              onClick={() =>
+                                setOption(String(modalItem.id), opt.option_group_label, opt.option_value)
+                              }
+                            >
+                              {opt.design_image_url ? (
+                                <img
+                                  src={opt.design_image_url}
+                                  alt={opt.option_name}
+                                  className="mb-1 h-14 w-14 rounded object-cover"
+                                />
+                              ) : null}
+                              <p className="text-xs font-medium text-slate-700">{opt.option_name}</p>
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
-                </div>
-              ))}
+
+                  {modalTypedOptions.language.length > 0 && (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-sm font-medium text-slate-800">2) Confirm language</p>
+                      {Object.entries(
+                        modalTypedOptions.language.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+                          if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
+                          acc[opt.option_group_label].push(opt)
+                          return acc
+                        }, {})
+                      ).map(([groupLabel, opts]) => (
+                        <select
+                          key={groupLabel}
+                          className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
+                          value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
+                          onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
+                        >
+                          <option value="">Select language...</option>
+                          {opts.map((opt) => (
+                            <option key={opt.id} value={opt.option_value}>
+                              {opt.option_name}
+                            </option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+                  )}
+
+                  {modalTypedOptions.size.length > 0 && (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-sm font-medium text-slate-800">3) Choose size</p>
+                      {Object.entries(
+                        modalTypedOptions.size.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+                          if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
+                          acc[opt.option_group_label].push(opt)
+                          return acc
+                        }, {})
+                      ).map(([groupLabel, opts]) => (
+                        <select
+                          key={groupLabel}
+                          className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
+                          value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
+                          onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
+                        >
+                          <option value="">Select size...</option>
+                          {opts.map((opt) => (
+                            <option key={opt.id} value={opt.option_value}>
+                              {opt.option_name}
+                            </option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+                  )}
+
+                  {Object.entries(modalTypedOptions.other).map(([groupLabel, opts]) => (
+                    <div key={groupLabel}>
+                      <label className="text-sm font-medium">{groupLabel}</label>
+                      <select
+                        className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
+                        value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
+                        onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
+                      >
+                        <option value="">Select...</option>
+                        {opts.map((opt) => (
+                          <option key={opt.id} value={opt.option_value}>
+                            {opt.option_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </>
+              )}
 
               {stashpointsForOrder.length > 1 && (
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
