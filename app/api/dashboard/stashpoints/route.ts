@@ -101,7 +101,13 @@ export async function POST(req: Request) {
           : id.length >= 5
             ? `${pp}-${id}`
             : undefined
-      const signageAlias = id.length >= 5 ? `${ps}-${id}` : undefined
+      const signageHostHex = String(r.hostId ?? '').trim().replace(/-/g, '').toLowerCase()
+      const signageAlias =
+        signageHostHex.length >= 5
+          ? `${ps}-${signageHostHex.slice(0, 40)}`
+          : id.length >= 5
+            ? `${ps}-${id}`
+            : undefined
 
       if (r.flagshipUrl) {
         shortenInputs.push({
@@ -136,14 +142,14 @@ export async function POST(req: Request) {
       tinyUrlCampaignPattern: {
         flagship: `${pf}-{stashpointId}`,
         programme: `${pp}-{hostId}`,
-        signage: `${ps}-{stashpointId}`,
+        signage: `${ps}-{hostId}`,
         prefixesResolved: {
           flagship: pf,
           programme: pp,
           signage: ps,
         },
         note:
-          'TinyURL uses one slug after tinyurl.com/ — shape is PREFIX-ID (configure PREFIX via FLAGSHIP_SHORT_LINK_ALIAS_PREFIX, PROGRAMME_SHORT_LINK_ALIAS_PREFIX, SIGNAGE_SHORT_LINK_ALIAS_PREFIX). Programme uses host id (hyphens stripped); flagship and signage use stashpoint id.',
+          'TinyURL uses one slug after tinyurl.com/ — shape is PREFIX-ID (configure PREFIX via FLAGSHIP_SHORT_LINK_ALIAS_PREFIX, PROGRAMME_SHORT_LINK_ALIAS_PREFIX, SIGNAGE_SHORT_LINK_ALIAS_PREFIX). Programme and signage prefer host id (hyphens stripped) when available; flagship uses stashpoint id.',
       },
     })
   } catch (e) {

@@ -660,7 +660,7 @@ export async function setSignageAutomationSettings(
 export type SignageCatalogOption = {
   id: number
   item_id: number
-  option_type: 'size' | 'design'
+  option_type: 'size' | 'design' | 'language'
   option_group_label: string
   option_name: string
   option_value: string
@@ -716,7 +716,7 @@ export type SignageCatalogItemUpdate = Partial<SignageCatalogItemInsert>
 
 export type SignageCatalogOptionInsert = {
   item_id: number
-  option_type?: 'size' | 'design'
+  option_type?: 'size' | 'design' | 'language'
   option_group_label: string
   option_name: string
   option_value: string

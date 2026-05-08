@@ -18,7 +18,7 @@ import {
 
 type CatalogOption = {
   id: number
-  option_type?: 'size' | 'design'
+  option_type?: 'size' | 'design' | 'language'
   option_group_label: string
   option_name: string
   option_value: string
@@ -62,7 +62,7 @@ export default function SignageCatalogDashboard() {
   const [newItemNoCustomisation, setNewItemNoCustomisation] = useState(false)
   const [maxQuantity, setMaxQuantity] = useState(1)
   const [optionItemId, setOptionItemId] = useState<number | null>(null)
-  const [optionType, setOptionType] = useState<'size' | 'design'>('size')
+  const [optionType, setOptionType] = useState<'size' | 'design' | 'language'>('size')
   const [sizeValue, setSizeValue] = useState('')
   const [designName, setDesignName] = useState('')
   const [designImageDataUrl, setDesignImageDataUrl] = useState('')
@@ -184,7 +184,10 @@ export default function SignageCatalogDashboard() {
   const openEditOptionModal = (itemId: number, option: CatalogOption) => {
     setOptionItemId(itemId)
     setEditingOption({ itemId, option })
-    const type = option.option_type === 'design' ? 'design' : 'size'
+    const type =
+      option.option_type === 'design' || option.option_type === 'language'
+        ? option.option_type
+        : 'size'
     setOptionType(type)
     setOptionTemplateDataUrl(option.template_image_url?.trim() ? option.template_image_url : '')
     if (type === 'size') {
@@ -221,9 +224,10 @@ export default function SignageCatalogDashboard() {
     if (!optionItemId) return
 
     const isSize = optionType === 'size'
-    const optionName = isSize ? sizeValue.trim() : designName.trim()
+    const isLanguage = optionType === 'language'
+    const optionName = isSize || isLanguage ? sizeValue.trim() : designName.trim()
     if (!optionName) {
-      window.alert(isSize ? 'Please enter a size.' : 'Please enter a design name.')
+      window.alert(isSize ? 'Please enter a size.' : isLanguage ? 'Please enter a language.' : 'Please enter a design name.')
       return
     }
 
@@ -232,10 +236,10 @@ export default function SignageCatalogDashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         option_type: optionType,
-        option_group_label: isSize ? 'Size' : 'Design',
+        option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
         option_name: optionName,
         option_value: optionName,
-        design_image_url: isSize ? null : designImageDataUrl || null,
+        design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
         template_image_url: optionTemplateDataUrl.trim() || null,
         is_visible: true,
       }),
@@ -247,9 +251,10 @@ export default function SignageCatalogDashboard() {
   const saveOptionEdit = async () => {
     if (!editingOption) return
     const isSize = optionType === 'size'
-    const optionName = isSize ? sizeValue.trim() : designName.trim()
+    const isLanguage = optionType === 'language'
+    const optionName = isSize || isLanguage ? sizeValue.trim() : designName.trim()
     if (!optionName) {
-      window.alert(isSize ? 'Please enter a size.' : 'Please enter a design name.')
+      window.alert(isSize ? 'Please enter a size.' : isLanguage ? 'Please enter a language.' : 'Please enter a design name.')
       return
     }
     await fetch(`/api/dashboard/signage/catalog/${editingOption.itemId}`, {
@@ -259,10 +264,10 @@ export default function SignageCatalogDashboard() {
         target: 'option',
         optionId: editingOption.option.id,
         option_type: optionType,
-        option_group_label: isSize ? 'Size' : 'Design',
+        option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
         option_name: optionName,
         option_value: optionName,
-        design_image_url: isSize ? null : designImageDataUrl || null,
+        design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
         template_image_url: optionTemplateDataUrl.trim(),
       }),
     })
@@ -651,15 +656,23 @@ export default function SignageCatalogDashboard() {
                 >
                   Design
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={optionType === 'language' ? 'default' : 'outline'}
+                  onClick={() => setOptionType('language')}
+                >
+                  Language
+                </Button>
               </div>
 
-              {optionType === 'size' ? (
+              {optionType === 'size' || optionType === 'language' ? (
                 <div>
-                  <Label>Size</Label>
+                  <Label>{optionType === 'language' ? 'Language' : 'Size'}</Label>
                   <Input
                     value={sizeValue}
                     onChange={(e) => setSizeValue(e.target.value)}
-                    placeholder="e.g. A4, 60x80cm"
+                    placeholder={optionType === 'language' ? 'e.g. English, French' : 'e.g. A4, 60x80cm'}
                   />
                 </div>
               ) : (
@@ -760,10 +773,18 @@ export default function SignageCatalogDashboard() {
                 >
                   Design
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={optionType === 'language' ? 'default' : 'outline'}
+                  onClick={() => setOptionType('language')}
+                >
+                  Language
+                </Button>
               </div>
-              {optionType === 'size' ? (
+              {optionType === 'size' || optionType === 'language' ? (
                 <div>
-                  <Label>Size</Label>
+                  <Label>{optionType === 'language' ? 'Language' : 'Size'}</Label>
                   <Input value={sizeValue} onChange={(e) => setSizeValue(e.target.value)} />
                 </div>
               ) : (

@@ -92,8 +92,23 @@ export function parseHostIdFromProgrammePublicUrl(url: string): string | null {
   }
 }
 
-/** Signage ordering page URL (`/s/{stashpointId}`). */
-export function signagePublicUrl(stashpointId: number | string): string {
+export type SignagePublicUrlOptions = {
+  /**
+   * When set, signage links use `/s/h/{hostId}` so one owner link can cover
+   * all active stashpoints under that host.
+   */
+  hostId?: number | string | null
+}
+
+/** Signage ordering page URL (`/s/{stashpointId}` or host-level `/s/h/{hostId}`). */
+export function signagePublicUrl(
+  stashpointId: number | string,
+  options?: SignagePublicUrlOptions
+): string {
   const base = resolveFlagshipSiteBaseUrl()
+  const hostId = options?.hostId
+  if (hostId !== null && hostId !== undefined && String(hostId).trim() !== '') {
+    return `${base}/s/h/${encodeURIComponent(String(hostId).trim())}`
+  }
   return `${base}/s/${encodeURIComponent(String(stashpointId).trim())}`
 }

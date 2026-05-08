@@ -36,7 +36,9 @@ export async function PATCH(
       if (!optionId) return NextResponse.json({ error: 'Invalid option ID' }, { status: 400 })
       const updated = await updateSignageCatalogOption(optionId, {
         option_type:
-          body.option_type === 'design' || body.option_type === 'size'
+          body.option_type === 'design' ||
+          body.option_type === 'size' ||
+          body.option_type === 'language'
             ? body.option_type
             : undefined,
         option_group_label:
@@ -116,7 +118,12 @@ export async function POST(
     }
     const option = await createSignageCatalogOption({
       item_id: id,
-      option_type: body.option_type === 'design' ? 'design' : 'size',
+      option_type:
+        body.option_type === 'design' ||
+        body.option_type === 'language' ||
+        body.option_type === 'size'
+          ? body.option_type
+          : 'size',
       option_group_label: body.option_group_label,
       option_name: body.option_name,
       option_value: typeof body.option_value === 'string' ? body.option_value : body.option_name,

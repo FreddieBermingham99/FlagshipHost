@@ -13,7 +13,7 @@ import {
 
 type CatalogOption = {
   id: number
-  option_type?: 'size' | 'design'
+  option_type?: 'size' | 'design' | 'language'
   option_group_label: string
   option_name: string
   option_value: string
@@ -36,6 +36,19 @@ type SelectedItem = {
   selected_options: Record<string, string>
 }
 
+type SignageStashpointSummary = {
+  stashpointId: string
+  businessName: string
+  city: string
+  country?: string
+}
+
+type ItemConfig = {
+  quantity: number
+  selected_options: Record<string, string>
+  target_stashpoint_ids: string[]
+}
+
 type Props = {
   stashpointId?: string
   businessName: string
@@ -46,7 +59,36 @@ type Props = {
   ownerEmail?: string
   ownerPhone?: string
   locale?: SupportedLandingLocale | string
+  hostId?: string
+  hostDisplayName?: string
+  signageStashpoints?: SignageStashpointSummary[]
   items: CatalogItem[]
+}
+
+const LOCALE_LANGUAGE_LABEL: Record<SupportedLandingLocale, string[]> = {
+  en: ['english', 'en'],
+  fr: ['french', 'francais', 'français', 'fr'],
+  es: ['spanish', 'espanol', 'español', 'es'],
+  de: ['german', 'deutsch', 'de'],
+  it: ['italian', 'italiano', 'it'],
+  pt: ['portuguese', 'portugues', 'português', 'pt'],
+  nl: ['dutch', 'nederlands', 'nl'],
+}
+
+function findDefaultOptionValue(
+  options: CatalogOption[],
+  locale: SupportedLandingLocale
+): string | null {
+  if (options.length === 0) return null
+  const languageOptions = options.filter((opt) => opt.option_type === 'language')
+  if (languageOptions.length === 0) return null
+  const accepted = LOCALE_LANGUAGE_LABEL[locale] || []
+  const match = languageOptions.find((opt) => {
+    const value = String(opt.option_value || '').trim().toLowerCase()
+    const name = String(opt.option_name || '').trim().toLowerCase()
+    return accepted.some((token) => value === token || name === token)
+  })
+  return match?.option_value ?? null
 }
 
 export default function SignageOrderingLanding({
@@ -59,19 +101,39 @@ export default function SignageOrderingLanding({
   ownerEmail,
   ownerPhone,
   locale,
+  hostId,
+  hostDisplayName,
+  signageStashpoints,
   items,
 }: Props) {
   const resolvedLocale: SupportedLandingLocale = normalizeLandingLocale(locale) ?? 'en'
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [quantitiesById, setQuantitiesById] = useState<Record<string, number>>({})
-  const [optionsById, setOptionsById] = useState<Record<string, Record<string, string>>>({})
+  const [configByItemId, setConfigByItemId] = useState<Record<string, ItemConfig>>({})
   const [optionModalItemId, setOptionModalItemId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const previousSelectedIdsRef = useRef<string[]>([])
 
+  const stashpointsForOrder = useMemo<SignageStashpointSummary[]>(() => {
+    if (signageStashpoints && signageStashpoints.length > 0) return signageStashpoints
+    if (stashpointId) {
+      return [
+        {
+          stashpointId,
+          businessName,
+          city: city || '',
+          country: country || undefined,
+        },
+      ]
+    }
+    return []
+  }, [signageStashpoints, stashpointId, businessName, city, country])
+
   const selectedCount = useMemo(() => {
-    return selectedIds.reduce((sum, id) => sum + Math.max(1, quantitiesById[id] ?? 1), 0)
-  }, [selectedIds, quantitiesById])
+    return selectedIds.reduce((sum, id) => {
+      const cfg = configByItemId[id]
+      return sum + Math.max(1, cfg?.quantity ?? 1)
+    }, 0)
+  }, [selectedIds, configByItemId])
 
   const pickerItems = useMemo<SignItem[]>(
     () =>
@@ -102,15 +164,46 @@ export default function SignageOrderingLanding({
 
   const setQuantity = (itemId: string, quantity: number) => {
     const max = maxQuantityById[itemId] ?? 1
-    setQuantitiesById((prev) => ({ ...prev, [itemId]: Math.min(max, Math.max(1, quantity || 1)) }))
+    setConfigByItemId((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || {
+          quantity: 1,
+          selected_options: {},
+          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+        }),
+        quantity: Math.min(max, Math.max(1, quantity || 1)),
+      },
+    }))
   }
 
   const setOption = (itemId: string, group: string, value: string) => {
-    setOptionsById((prev) => ({
+    setConfigByItemId((prev) => ({
       ...prev,
       [itemId]: {
-        ...(prev[itemId] || {}),
-        [group]: value,
+        ...(prev[itemId] || {
+          quantity: 1,
+          selected_options: {},
+          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+        }),
+        selected_options: {
+          ...(prev[itemId]?.selected_options || {}),
+          [group]: value,
+        },
+      },
+    }))
+  }
+
+  const setTargetStashpoints = (itemId: string, ids: string[]) => {
+    setConfigByItemId((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || {
+          quantity: 1,
+          selected_options: {},
+          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+        }),
+        target_stashpoint_ids: ids,
       },
     }))
   }
@@ -118,6 +211,34 @@ export default function SignageOrderingLanding({
   const handlePickerChange = (ids: string[]) => {
     const previous = previousSelectedIdsRef.current
     const added = ids.filter((id) => !previous.includes(id))
+    if (added.length > 0) {
+      setConfigByItemId((prev) => {
+        const next = { ...prev }
+        for (const itemId of added) {
+          if (!next[itemId]) {
+            const item = items.find((x) => String(x.id) === itemId)
+            const defaultOptions: Record<string, string> = {}
+            if (item) {
+              const grouped = item.options.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+                if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
+                acc[opt.option_group_label].push(opt)
+                return acc
+              }, {})
+              for (const [group, opts] of Object.entries(grouped)) {
+                const languageDefault = findDefaultOptionValue(opts, resolvedLocale)
+                if (languageDefault) defaultOptions[group] = languageDefault
+              }
+            }
+            next[itemId] = {
+              quantity: 1,
+              selected_options: defaultOptions,
+              target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+            }
+          }
+        }
+        return next
+      })
+    }
     if (added.length > 0) {
       const withOptions = items.find(
         (item) => added.includes(String(item.id)) && item.options.length > 0
@@ -131,36 +252,88 @@ export default function SignageOrderingLanding({
   }
 
   useEffect(() => {
+    setConfigByItemId((prev) => {
+      const keep = new Set(selectedIds)
+      const next: Record<string, ItemConfig> = {}
+      for (const [itemId, cfg] of Object.entries(prev)) {
+        if (keep.has(itemId)) {
+          next[itemId] = cfg
+        }
+      }
+      return next
+    })
+  }, [selectedIds])
+
+  useEffect(() => {
     previousSelectedIdsRef.current = selectedIds
   }, [selectedIds])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const selectedItems: SelectedItem[] = selectedCatalogItems.map((item) => ({
-      catalog_item_id: item.id,
-      item_name_snapshot: item.name,
-      quantity: Math.max(1, quantitiesById[String(item.id)] ?? 1),
-      selected_options: optionsById[String(item.id)] || {},
-    }))
-    if (selectedItems.length === 0) {
+    if (selectedCatalogItems.length === 0) {
       window.alert('Please select at least one signage type.')
       return
     }
+
+    const selectedItems: SelectedItem[] = selectedCatalogItems.map((item) => {
+      const cfg = configByItemId[String(item.id)]
+      return {
+        catalog_item_id: item.id,
+        item_name_snapshot: item.name,
+        quantity: Math.max(1, cfg?.quantity ?? 1),
+        selected_options: cfg?.selected_options || {},
+      }
+    })
+
+    const targetedByStashpoint = new Map<string, SelectedItem[]>()
+    for (const item of selectedCatalogItems) {
+      const itemId = String(item.id)
+      const cfg = configByItemId[itemId]
+      const targetIds = cfg?.target_stashpoint_ids?.length
+        ? cfg.target_stashpoint_ids
+        : stashpointsForOrder.map((s) => s.stashpointId)
+      const itemPayload: SelectedItem = {
+        catalog_item_id: item.id,
+        item_name_snapshot: item.name,
+        quantity: Math.max(1, cfg?.quantity ?? 1),
+        selected_options: cfg?.selected_options || {},
+      }
+      for (const spId of targetIds) {
+        if (!targetedByStashpoint.has(spId)) targetedByStashpoint.set(spId, [])
+        targetedByStashpoint.get(spId)!.push(itemPayload)
+      }
+    }
+    if (targetedByStashpoint.size === 0) {
+      window.alert('Please keep at least one stashpoint selected for the chosen signage items.')
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const formData = new FormData(e.currentTarget)
       const payload = Object.fromEntries(formData.entries())
+      const orders = stashpointsForOrder
+        .map((sp) => ({
+          stashpointId: sp.stashpointId,
+          business_name: sp.businessName,
+          city: sp.city || city || '',
+          country: sp.country || country || '',
+          items: targetedByStashpoint.get(sp.stashpointId) || [],
+        }))
+        .filter((o) => o.items.length > 0)
       const res = await fetch('/api/signage/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...payload,
           stashpointId,
+          hostId,
           business_name: businessName,
           city: city || '',
           country: country || '',
           source: 'signage',
           items: selectedItems,
+          orders,
         }),
       })
       if (!res.ok) {
@@ -189,6 +362,11 @@ export default function SignageOrderingLanding({
             Choose signage items for <span className="font-semibold">{businessName}</span>
             {city ? ` in ${city}` : ''}.
           </p>
+          {hostId && stashpointsForOrder.length > 1 && (
+            <p className="mt-2 text-xs text-slate-500">
+              {hostDisplayName ? `${hostDisplayName}: ` : ''}{stashpointsForOrder.length} stashpoints are linked to this host. You can target stashpoints per signage item in “Configure”.
+            </p>
+          )}
         </div>
 
         <Card>
@@ -201,10 +379,12 @@ export default function SignageOrderingLanding({
               storageKey={`signage-order-${stashpointId || businessName}`}
               initialSelected={[]}
               onChange={handlePickerChange}
-              quantityById={quantitiesById}
+              quantityById={Object.fromEntries(
+                Object.entries(configByItemId).map(([id, cfg]) => [id, cfg.quantity])
+              )}
               maxQuantityById={maxQuantityById}
-              onIncreaseQuantity={(id) => setQuantity(id, (quantitiesById[id] ?? 1) + 1)}
-              onDecreaseQuantity={(id) => setQuantity(id, (quantitiesById[id] ?? 1) - 1)}
+              onIncreaseQuantity={(id) => setQuantity(id, (configByItemId[id]?.quantity ?? 1) + 1)}
+              onDecreaseQuantity={(id) => setQuantity(id, (configByItemId[id]?.quantity ?? 1) - 1)}
             />
 
             {selectedCatalogItems.length > 0 && (
@@ -220,7 +400,7 @@ export default function SignageOrderingLanding({
                     <div key={item.id} className="rounded-lg border bg-white p-3">
                       <p className="text-sm font-medium">{item.name}</p>
                       <p className="mt-2 text-xs text-slate-600">
-                        Quantity: <span className="font-semibold">{quantitiesById[String(item.id)] ?? 1}</span> / {maxQuantityById[String(item.id)] ?? 1}
+                        Quantity: <span className="font-semibold">{configByItemId[String(item.id)]?.quantity ?? 1}</span> / {maxQuantityById[String(item.id)] ?? 1}
                       </p>
                       {Object.keys(grouped).length > 0 && (
                         <div className="mt-3 flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
@@ -233,9 +413,14 @@ export default function SignageOrderingLanding({
                             variant="outline"
                             onClick={() => setOptionModalItemId(String(item.id))}
                           >
-                            Choose options
+                            Configure
                           </Button>
                         </div>
+                      )}
+                      {stashpointsForOrder.length > 1 && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Applies to {configByItemId[String(item.id)]?.target_stashpoint_ids?.length ?? stashpointsForOrder.length} of {stashpointsForOrder.length} stashpoints
+                        </p>
                       )}
                     </div>
                   )
@@ -325,10 +510,17 @@ export default function SignageOrderingLanding({
                 }, {})
               ).map(([groupLabel, opts]) => (
                 <div key={groupLabel}>
-                  <label className="text-sm font-medium">{groupLabel}</label>
+                  <div className="mb-1 flex items-center gap-2">
+                    <label className="text-sm font-medium">{groupLabel}</label>
+                    {opts[0]?.option_type && (
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] uppercase text-slate-600">
+                        {opts[0].option_type}
+                      </span>
+                    )}
+                  </div>
                   <select
                     className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
-                    value={optionsById[String(modalItem.id)]?.[groupLabel] || ''}
+                    value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
                     onChange={(e) =>
                       setOption(String(modalItem.id), groupLabel, e.target.value)
                     }
@@ -360,9 +552,65 @@ export default function SignageOrderingLanding({
                 </div>
               ))}
 
+              {stashpointsForOrder.length > 1 && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-medium text-slate-800">Apply to stashpoints</p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setTargetStashpoints(
+                            String(modalItem.id),
+                            stashpointsForOrder.map((s) => s.stashpointId)
+                          )
+                        }
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setTargetStashpoints(String(modalItem.id), [])}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="max-h-44 space-y-1 overflow-auto">
+                    {stashpointsForOrder.map((sp) => {
+                      const selectedIds =
+                        configByItemId[String(modalItem.id)]?.target_stashpoint_ids ??
+                        stashpointsForOrder.map((x) => x.stashpointId)
+                      const checked = selectedIds.includes(sp.stashpointId)
+                      return (
+                        <label key={sp.stashpointId} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-white">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...selectedIds, sp.stashpointId]
+                                : selectedIds.filter((id) => id !== sp.stashpointId)
+                              setTargetStashpoints(String(modalItem.id), [...new Set(next)])
+                            }}
+                          />
+                          <span className="text-xs text-slate-700">
+                            {sp.businessName} ({sp.city}) • {sp.stashpointId}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-end">
                 <Button type="button" onClick={() => setOptionModalItemId(null)}>
-                  Done
+                  Confirm choices
                 </Button>
               </div>
             </CardContent>
