@@ -82,6 +82,7 @@ export async function generateSignageAssetsForOrder(
   const catalog = await listSignageCatalogItems(false)
   const byId = new Map(catalog.map((c) => [c.id, c]))
   let hadErrors = false
+  const errorDetails: string[] = []
 
   await updateSignageOrderAssetStatus(order.id, 'in_progress')
   for (const item of order.items) {
@@ -92,6 +93,7 @@ export async function generateSignageAssetsForOrder(
 
     if (!templateUrl) {
       hadErrors = true
+      errorDetails.push(`${item.item_name_snapshot}: missing generation template`)
       await updateSignageOrderItemAsset(item.id, {
         asset_error: 'Missing generation template (set production template or display image)',
       })
@@ -141,13 +143,30 @@ export async function generateSignageAssetsForOrder(
       })
     } catch (error) {
       hadErrors = true
+      const message = error instanceof Error ? error.message : 'Failed to generate asset'
+      errorDetails.push(`${item.item_name_snapshot}: ${message}`)
+      console.error('[signage automation] item generation failed', {
+        orderId,
+        itemId: item.id,
+        itemName: item.item_name_snapshot,
+        templateUrl,
+        folderId: uploadFolderId,
+        error: message,
+      })
       await updateSignageOrderItemAsset(item.id, {
-        asset_error: error instanceof Error ? error.message : 'Failed to generate asset',
+        asset_error: message,
       })
     }
   }
   await updateSignageOrderAssetStatus(order.id, hadErrors ? 'failed' : 'completed')
-  return hadErrors ? { ok: false, error: 'One or more assets failed' } : { ok: true }
+  if (!hadErrors) return { ok: true }
+  return {
+    ok: false,
+    error:
+      errorDetails.length > 0
+        ? errorDetails.slice(0, 5).join(' | ')
+        : 'One or more assets failed',
+  }
 }
 
 export function queueGenerateSignageForOrder(orderId: number, options?: GenerateSignageAssetsOptions): void {

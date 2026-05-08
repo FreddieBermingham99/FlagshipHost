@@ -33,10 +33,21 @@ export async function buildQrUrl(params: {
       .replace(/\[(stashpointid|stashpoint_id)\]/gi, encodeURIComponent(params.stashpointId))
       .replace(/\[(signagetype|signage_type)\]/gi, encodeURIComponent(signageTypeSlug))
   } else {
-    const row = await findStashpointRowById(params.stashpointId)
-    if (row) {
-      baseWithoutQuery = stasherListingBaseFromRow(params.stashpointId, row.canonical_url)
-    } else {
+    try {
+      const row = await findStashpointRowById(params.stashpointId)
+      if (row) {
+        baseWithoutQuery = stasherListingBaseFromRow(params.stashpointId, row.canonical_url)
+      } else {
+        baseWithoutQuery = flagshipPublicUrl(params.slug || params.stashpointId, {
+          stashpointId: params.stashpointId,
+        })
+      }
+    } catch (error) {
+      // Asset generation should still proceed when Stasher DB is temporarily unreachable.
+      console.warn('[signage automation] failed to load stashpoint row for QR URL; using fallback URL', {
+        stashpointId: params.stashpointId,
+        error: error instanceof Error ? error.message : String(error),
+      })
       baseWithoutQuery = flagshipPublicUrl(params.slug || params.stashpointId, {
         stashpointId: params.stashpointId,
       })

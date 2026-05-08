@@ -240,7 +240,9 @@ export async function POST(req: Request) {
       )
       const failed = results.filter((r) => !r.ok)
       if (failed.length > 0) {
-        console.error('[signage campaign] some generations failed', { failed })
+        console.error('[signage campaign] some generations failed', {
+          failed: failed.map((f) => f.error || 'unknown error'),
+        })
       }
     } else {
       orderIds.forEach((id) => queueGenerateSignageForOrder(id))
