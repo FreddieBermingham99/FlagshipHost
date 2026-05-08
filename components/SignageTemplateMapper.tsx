@@ -55,6 +55,22 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
     setNaturalH(0)
   }, [imageSrc])
 
+  useEffect(() => {
+    const el = imgRef.current
+    if (!el) return
+    // Some cached/data URL image loads can miss onLoad in React update timing.
+    if (el.complete && el.naturalWidth > 0 && el.naturalHeight > 0) {
+      const nw = el.naturalWidth
+      const nh = el.naturalHeight
+      setNaturalW(nw)
+      setNaturalH(nh)
+      if (!sizedRef.current) {
+        sizedRef.current = true
+        onImageSized?.(nw, nh)
+      }
+    }
+  }, [imageSrc, onImageSized])
+
   const clientToNatural = useCallback(
     (clientX: number, clientY: number): OverlayPoint => {
       const el = imgRef.current
@@ -106,6 +122,27 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
         businessNameQuad: undefined,
       })
     }
+  }
+
+  const centerActiveRect = (axis: 'both' | 'x' | 'y') => {
+    if (naturalW <= 0 || naturalH <= 0) return
+    if (layer === 'qr') {
+      const base = resolveQrOverlayRect(overlay, naturalW, naturalH)
+      const next = {
+        ...base,
+        x: axis === 'both' || axis === 'x' ? (naturalW - base.width) / 2 : base.x,
+        y: axis === 'both' || axis === 'y' ? (naturalH - base.height) / 2 : base.y,
+      }
+      onChange({ ...overlay, qrRect: next, qrQuad: undefined })
+      return
+    }
+    const base = resolveBusinessOverlayRect(overlay, naturalW, naturalH)
+    const next = {
+      ...base,
+      x: axis === 'both' || axis === 'x' ? (naturalW - base.width) / 2 : base.x,
+      y: axis === 'both' || axis === 'y' ? (naturalH - base.height) / 2 : base.y,
+    }
+    onChange({ ...overlay, businessNameRect: next, businessNameQuad: undefined })
   }
 
   const qrRect =
@@ -219,6 +256,24 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
           <span className="text-slate-500">
             Image: {naturalW}×{naturalH}px
           </span>
+          <Button
+            size="sm"
+            type="button"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => centerActiveRect('x')}
+          >
+            Center horizontally
+          </Button>
+          <Button
+            size="sm"
+            type="button"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => centerActiveRect('y')}
+          >
+            Centre vertically
+          </Button>
           <Button size="sm" type="button" variant="outline" className="h-7 text-xs" onClick={resetQr}>
             Reset QR rectangle
           </Button>
@@ -249,29 +304,14 @@ export function SignageTemplateMapper({ imageSrc, overlay, onChange, onImageSize
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div>
-          <Label className="text-xs">Business text colour</Label>
-          <input
-            type="color"
-            className="mt-1 h-9 w-full rounded border px-1"
-            value={overlay.businessTextColor || '#111111'}
-            onChange={(e) => onChange({ ...overlay, businessTextColor: e.target.value })}
-          />
-        </div>
-        <div>
-          <Label className="text-xs">Business font size (px)</Label>
-          <input
-            type="number"
-            min={8}
-            max={200}
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-            value={overlay.businessFontSizePx ?? 42}
-            onChange={(e) =>
-              onChange({ ...overlay, businessFontSizePx: Math.max(8, Number(e.target.value) || 42) })
-            }
-          />
-        </div>
+      <div>
+        <Label className="text-xs">Business text colour</Label>
+        <input
+          type="color"
+          className="mt-1 h-9 w-full rounded border px-1"
+          value={overlay.businessTextColor || '#111111'}
+          onChange={(e) => onChange({ ...overlay, businessTextColor: e.target.value })}
+        />
       </div>
     </div>
   )

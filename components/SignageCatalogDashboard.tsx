@@ -15,6 +15,7 @@ import {
   overlayRectsOnlyForSave,
   rectFromQuadAabb,
 } from '@/lib/signage-overlay-ui'
+import { type SupportedLandingLocale } from '@/lib/landing-locale'
 
 type CatalogOption = {
   id: number
@@ -34,6 +35,7 @@ type CatalogItem = {
   description: string | null
   image_url: string | null
   template_image_url?: string | null
+  template_image_url?: string | null
   requires_customisation?: boolean
   requires_unique_qr?: boolean
   overlay_config?: Record<string, unknown>
@@ -42,6 +44,55 @@ type CatalogItem = {
   sort_order: number
   orders_count: number
   options: CatalogOption[]
+}
+
+const LANGUAGE_CHOICES: Array<{ code: SupportedLandingLocale; label: string }> = [
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'French' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'de', label: 'German' },
+  { code: 'it', label: 'Italian' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'nl', label: 'Dutch' },
+]
+
+type DesignLanguageVariationDraft = {
+  id: string
+  languageCode: string
+  templateDataUrl: string
+  overlay: SignageOverlayConfig
+}
+
+function slugifyDesignName(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function parseCommaSeparatedValues(input: string): string[] {
+  return [...new Set(input.split(',').map((x) => x.trim()).filter(Boolean))]
+}
+
+function cloneOverlayConfig(input?: SignageOverlayConfig): SignageOverlayConfig {
+  if (!input) return {}
+  return {
+    ...input,
+    qrRect: input.qrRect ? { ...input.qrRect } : undefined,
+    qrQuad: input.qrQuad ? input.qrQuad.map((p) => ({ ...p })) : undefined,
+    businessNameRect: input.businessNameRect ? { ...input.businessNameRect } : undefined,
+    businessNameQuad: input.businessNameQuad ? input.businessNameQuad.map((p) => ({ ...p })) : undefined,
+  }
+}
+
+function createLanguageVariationDraft(id: string, overlay?: SignageOverlayConfig): DesignLanguageVariationDraft {
+  return {
+    id,
+    languageCode: '',
+    templateDataUrl: '',
+    overlay: cloneOverlayConfig(overlay),
+  }
 }
 
 async function readFileAsDataUrl(file: File): Promise<string> {
@@ -67,6 +118,10 @@ export default function SignageCatalogDashboard() {
   const [sizeValue, setSizeValue] = useState('')
   const [designName, setDesignName] = useState('')
   const [designImageDataUrl, setDesignImageDataUrl] = useState('')
+  const [designHasLanguageVariants, setDesignHasLanguageVariants] = useState(false)
+  const [designLanguageVariations, setDesignLanguageVariations] = useState<DesignLanguageVariationDraft[]>([])
+  const [designSizeOptionsCsv, setDesignSizeOptionsCsv] = useState('')
+  const [designAllowCustomDimensionsCm, setDesignAllowCustomDimensionsCm] = useState(false)
   const [optionTemplateDataUrl, setOptionTemplateDataUrl] = useState('')
   const [optionOverlay, setOptionOverlay] = useState<SignageOverlayConfig>({})
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
@@ -140,18 +195,27 @@ export default function SignageCatalogDashboard() {
 
   const openAddOptionModal = (itemId: number) => {
     setOptionItemId(itemId)
-    setOptionType('size')
+    setOptionType('design')
     setSizeValue('')
     setDesignName('')
     setDesignImageDataUrl('')
+    setDesignHasLanguageVariants(false)
+    setDesignSizeOptionsCsv('')
+    setDesignAllowCustomDimensionsCm(false)
     setOptionTemplateDataUrl('')
     const parent = items.find((x) => x.id === itemId)
-    setOptionOverlay(overlayConfigFromCatalog(parent?.overlay_config))
+    const inheritedOverlay = overlayConfigFromCatalog(parent?.overlay_config)
+    setOptionOverlay(inheritedOverlay)
+    setDesignLanguageVariations([createLanguageVariationDraft(`${Date.now()}-0`, inheritedOverlay)])
   }
 
   const closeAddOptionModal = () => {
     setOptionItemId(null)
     setOptionOverlay({})
+    setDesignHasLanguageVariants(false)
+    setDesignLanguageVariations([])
+    setDesignSizeOptionsCsv('')
+    setDesignAllowCustomDimensionsCm(false)
   }
 
   const openEditItemModal = (item: CatalogItem) => {
@@ -206,7 +270,7 @@ export default function SignageCatalogDashboard() {
         : overlayConfigFromCatalog(parent?.overlay_config)
     )
     if (type === 'size' || type === 'language') {
-      setSizeValue(option.option_name || '')
+      setSizeValue(type === 'language' ? (option.option_value || option.option_name || '') : (option.option_name || ''))
       setDesignName('')
       setDesignImageDataUrl('')
     } else {
@@ -222,52 +286,130 @@ export default function SignageCatalogDashboard() {
     setOptionOverlay({})
   }
 
+  const updateDesignLanguageVariation = (
+    id: string,
+    patch: Partial<DesignLanguageVariationDraft>
+  ) => {
+    setDesignLanguageVariations((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, ...patch } : v))
+    )
+  }
+
   const onDesignImageFile = async (file: File | null) => {
     if (!file) {
       setDesignImageDataUrl('')
       return
     }
-    const reader = new FileReader()
-    await new Promise<void>((resolve, reject) => {
-      reader.onload = () => resolve()
-      reader.onerror = () => reject(new Error('Failed to read file'))
-      reader.readAsDataURL(file)
-    })
-    setDesignImageDataUrl(typeof reader.result === 'string' ? reader.result : '')
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      setDesignImageDataUrl(dataUrl)
+    } catch {
+      window.alert('Could not read that file.')
+    }
+  }
+
+  const onLanguageTemplateFile = async (id: string, file: File | null) => {
+    if (!file) {
+      updateDesignLanguageVariation(id, { templateDataUrl: '' })
+      return
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      updateDesignLanguageVariation(id, { templateDataUrl: dataUrl })
+    } catch {
+      window.alert('Could not read that file.')
+    }
   }
 
   const addOption = async () => {
     if (!optionItemId) return
-
-    const isSize = optionType === 'size'
-    const isLanguage = optionType === 'language'
-    const optionName = isSize || isLanguage ? sizeValue.trim() : designName.trim()
+    const optionName = designName.trim()
     if (!optionName) {
-      window.alert(isSize ? 'Please enter a size.' : isLanguage ? 'Please enter a language.' : 'Please enter a design name.')
+      window.alert('Please enter a design name.')
       return
     }
 
     const targetItemId = optionItemId
-    const payload = {
-      option_type: optionType,
-      option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
+    const payloads: Array<Record<string, unknown>> = []
+    const designKey = slugifyDesignName(optionName) || `design-${Date.now()}`
+    const designSizes = parseCommaSeparatedValues(designSizeOptionsCsv)
+    const standardTemplate = optionTemplateDataUrl.trim()
+    const validVariations = designLanguageVariations.filter(
+      (v) => v.languageCode.trim() && v.templateDataUrl.trim()
+    )
+    const derivedDesignPreview = designHasLanguageVariants
+      ? validVariations[0]?.templateDataUrl?.trim() || null
+      : standardTemplate || null
+    if (!designHasLanguageVariants && !standardTemplate) {
+      window.alert('Upload a standard design template, or switch to language-specific variations.')
+      return
+    }
+    payloads.push({
+      option_type: 'design',
+      option_group_label: 'Design',
       option_name: optionName,
-      option_value: optionName,
-      design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
-      template_image_url: optionTemplateDataUrl.trim() || null,
+      option_value: designKey,
+      design_image_url: derivedDesignPreview,
+      template_image_url: designHasLanguageVariants ? null : standardTemplate,
       overlay_config: overlayRectsOnlyForSave(optionOverlay) as Record<string, unknown>,
       is_visible: true,
+    })
+    for (const sizeName of designSizes) {
+      payloads.push({
+        option_type: 'size',
+        option_group_label: `Size::${designKey}`,
+        option_name: sizeName,
+        option_value: sizeName,
+        design_image_url: null,
+        template_image_url: null,
+        overlay_config: null,
+        is_visible: true,
+      })
+    }
+    if (designAllowCustomDimensionsCm) {
+      payloads.push({
+        option_type: 'size',
+        option_group_label: `Size::${designKey}`,
+        option_name: 'Custom dimensions (cm)',
+        option_value: 'custom-cm',
+        design_image_url: null,
+        template_image_url: null,
+        overlay_config: null,
+        is_visible: true,
+      })
+    }
+    if (designHasLanguageVariants) {
+      if (validVariations.length === 0) {
+        window.alert('Add at least one language template.')
+        return
+      }
+      for (const v of validVariations) {
+        const lang = LANGUAGE_CHOICES.find((x) => x.code === (v.languageCode as SupportedLandingLocale))
+        payloads.push({
+          option_type: 'language',
+          option_group_label: `Language::${designKey}`,
+          option_name: lang?.label || v.languageCode,
+          option_value: v.languageCode,
+          design_image_url: null,
+          template_image_url: v.templateDataUrl.trim(),
+          overlay_config: overlayRectsOnlyForSave(v.overlay) as Record<string, unknown>,
+          is_visible: true,
+        })
+      }
     }
     closeAddOptionModal()
     void (async () => {
-      const res = await fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        window.alert(typeof data.error === 'string' ? data.error : 'Failed to save option')
+      for (const payload of payloads) {
+        const res = await fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          window.alert(typeof data.error === 'string' ? data.error : 'Failed to save option')
+          break
+        }
       }
       fetchItems()
     })()
@@ -288,7 +430,10 @@ export default function SignageCatalogDashboard() {
       optionId: editingOption.option.id,
       option_type: optionType,
       option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
-      option_name: optionName,
+      option_name:
+        isLanguage
+          ? (LANGUAGE_CHOICES.find((x) => x.code === (optionName as SupportedLandingLocale))?.label || optionName)
+          : optionName,
       option_value: optionName,
       design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
       template_image_url: optionTemplateDataUrl.trim(),
@@ -481,7 +626,9 @@ export default function SignageCatalogDashboard() {
                       <p className="text-xs text-slate-400">No options configured.</p>
                     ) : (
                       <div className="space-y-2">
-                        {item.options.map((opt) => (
+                        {item.options
+                          .filter((opt) => opt.option_type === 'design' || opt.option_group_label === 'Design')
+                          .map((opt) => (
                           <div key={opt.id} className="flex items-center justify-between rounded border bg-slate-50 px-2 py-1">
                             <div className="flex items-center gap-2">
                               <span className="text-xs">
@@ -666,107 +813,177 @@ export default function SignageCatalogDashboard() {
           onClick={closeAddOptionModal}
         >
           <Card
-            className="w-full max-w-2xl"
+            className="max-h-[92vh] w-full max-w-2xl overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <CardHeader>
-              <CardTitle className="text-base">Add option</CardTitle>
+              <CardTitle className="text-base">Add design option</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={optionType === 'size' ? 'default' : 'outline'}
-                  onClick={() => setOptionType('size')}
-                >
-                  Size
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={optionType === 'design' ? 'default' : 'outline'}
-                  onClick={() => setOptionType('design')}
-                >
-                  Design
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={optionType === 'language' ? 'default' : 'outline'}
-                  onClick={() => setOptionType('language')}
-                >
-                  Language
-                </Button>
-              </div>
-
-              {optionType === 'size' || optionType === 'language' ? (
+              <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 1</p>
                 <div>
-                  <Label>{optionType === 'language' ? 'Language' : 'Size'}</Label>
+                  <Label>Design name</Label>
                   <Input
-                    value={sizeValue}
-                    onChange={(e) => setSizeValue(e.target.value)}
-                    placeholder={optionType === 'language' ? 'e.g. English, French' : 'e.g. A4, 60x80cm'}
+                    value={designName}
+                    onChange={(e) => setDesignName(e.target.value)}
+                    placeholder="e.g. Black branded v2"
                   />
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <Label>Design name</Label>
-                    <Input
-                      value={designName}
-                      onChange={(e) => setDesignName(e.target.value)}
-                      placeholder="e.g. Black branded v2"
-                    />
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={designHasLanguageVariants}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setDesignHasLanguageVariants(checked)
+                      if (checked && designLanguageVariations.length === 0) {
+                        setDesignLanguageVariations([
+                          createLanguageVariationDraft(`${Date.now()}-0`, optionOverlay),
+                        ])
+                      }
+                    }}
+                  />
+                  This design has language-specific template variations
+                </label>
+              </div>
+
+              <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 2</p>
+                {designHasLanguageVariants ? (
+                  <div className="space-y-3">
+                    {designLanguageVariations.map((row, index) => (
+                      <div key={row.id} className="space-y-2 rounded border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-slate-700">Language template {index + 1}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="text-red-600"
+                            onClick={() =>
+                              setDesignLanguageVariations((prev) =>
+                                prev.length > 1 ? prev.filter((x) => x.id !== row.id) : prev
+                              )
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        <select
+                          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                          value={row.languageCode}
+                          onChange={(e) =>
+                            updateDesignLanguageVariation(row.id, { languageCode: e.target.value })
+                          }
+                        >
+                          <option value="">Language…</option>
+                          {LANGUAGE_CHOICES.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) => onLanguageTemplateFile(row.id, e.target.files?.[0] ?? null)}
+                        />
+                        <Input
+                          placeholder="Optional: template URL / data URL"
+                          value={row.templateDataUrl}
+                          onChange={(e) =>
+                            updateDesignLanguageVariation(row.id, { templateDataUrl: e.target.value })
+                          }
+                          className="text-xs"
+                        />
+                        <SignageTemplateMapper
+                          imageSrc={
+                            row.templateDataUrl.trim() ||
+                            optionParentItem?.template_image_url?.trim() ||
+                            optionParentItem?.image_url ||
+                            ''
+                          }
+                          overlay={row.overlay}
+                          onChange={(next) => updateDesignLanguageVariation(row.id, { overlay: next })}
+                          onImageSized={(nw, nh) => {
+                            setDesignLanguageVariations((prev) =>
+                              prev.map((v) => {
+                                if (v.id !== row.id) return v
+                                const current = v.overlay || {}
+                                return {
+                                  ...v,
+                                  overlay: {
+                                    ...current,
+                                    qrRect:
+                                      current.qrRect &&
+                                      current.qrRect.width >= 8 &&
+                                      current.qrRect.height >= 8
+                                        ? current.qrRect
+                                        : current.qrQuad
+                                          ? rectFromQuadAabb(current.qrQuad)
+                                          : defaultQrRect(nw, nh),
+                                    businessNameRect:
+                                      current.businessNameRect &&
+                                      current.businessNameRect.width >= 8 &&
+                                      current.businessNameRect.height >= 8
+                                        ? current.businessNameRect
+                                        : current.businessNameQuad
+                                          ? rectFromQuadAabb(current.businessNameQuad)
+                                          : defaultBusinessRect(nw, nh),
+                                  },
+                                }
+                              })
+                            )
+                          }}
+                        />
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setDesignLanguageVariations((prev) => [
+                          ...prev,
+                          createLanguageVariationDraft(
+                            `${Date.now()}-${prev.length}`,
+                            prev[0]?.overlay || optionOverlay
+                          ),
+                        ])
+                      }
+                    >
+                      Add language template
+                    </Button>
                   </div>
-                  <div>
-                    <Label>Display preview (picker / modal)</Label>
+                ) : (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Upload standard template</Label>
                     <Input
                       type="file"
-                      accept="image/*"
-                      onChange={(e) => onDesignImageFile(e.target.files?.[0] ?? null)}
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) {
+                          setOptionTemplateDataUrl('')
+                          return
+                        }
+                        try {
+                          setOptionTemplateDataUrl(await readFileAsDataUrl(file))
+                        } catch {
+                          window.alert('Could not read that file.')
+                        }
+                      }}
+                    />
+                    <Input
+                      placeholder="Optional: template URL / data URL"
+                      value={optionTemplateDataUrl}
+                      onChange={(e) => setOptionTemplateDataUrl(e.target.value)}
+                      className="text-xs"
                     />
                   </div>
-                  {designImageDataUrl && (
-                    <img
-                      src={designImageDataUrl}
-                      alt="Design preview"
-                      className="h-24 w-24 rounded border object-cover"
-                    />
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-2 border-t pt-3">
-                <Label className="text-xs">Production template for this option (optional)</Label>
-                <p className="text-[11px] text-slate-500">
-                  When the order includes this option, this file is used for generation instead of the item-level
-                  template. Leave empty to inherit the parent signage template.
-                </p>
-                <Input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) {
-                      setOptionTemplateDataUrl('')
-                      return
-                    }
-                    try {
-                      setOptionTemplateDataUrl(await readFileAsDataUrl(file))
-                    } catch {
-                      window.alert('Could not read that file.')
-                    }
-                  }}
-                />
-                <Input
-                  placeholder="Or template URL / data URL"
-                  value={optionTemplateDataUrl}
-                  onChange={(e) => setOptionTemplateDataUrl(e.target.value)}
-                  className="text-xs"
-                />
+                )}
               </div>
-              {optionType !== 'size' && (
+
+              {!designHasLanguageVariants && (
                 <SignageTemplateMapper
                   imageSrc={
                     optionTemplateDataUrl.trim() ||
@@ -796,6 +1013,26 @@ export default function SignageCatalogDashboard() {
                 />
               )}
 
+              <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 3</p>
+                <Label className="text-xs font-medium text-slate-700">
+                  Sizes available for this design
+                </Label>
+                <Input
+                  value={designSizeOptionsCsv}
+                  onChange={(e) => setDesignSizeOptionsCsv(e.target.value)}
+                  placeholder="e.g. A4, A3, 60x80cm"
+                />
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={designAllowCustomDimensionsCm}
+                    onChange={(e) => setDesignAllowCustomDimensionsCm(e.target.checked)}
+                  />
+                  Allow custom dimensions in cm
+                </label>
+              </div>
+
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={closeAddOptionModal}>
                   Cancel
@@ -814,7 +1051,7 @@ export default function SignageCatalogDashboard() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
           onClick={closeEditOptionModal}
         >
-          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <Card className="max-h-[92vh] w-full max-w-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <CardHeader>
               <CardTitle className="text-base">Edit option</CardTitle>
             </CardHeader>
@@ -848,7 +1085,22 @@ export default function SignageCatalogDashboard() {
               {optionType === 'size' || optionType === 'language' ? (
                 <div>
                   <Label>{optionType === 'language' ? 'Language' : 'Size'}</Label>
-                  <Input value={sizeValue} onChange={(e) => setSizeValue(e.target.value)} />
+                  {optionType === 'language' ? (
+                    <select
+                      className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={sizeValue}
+                      onChange={(e) => setSizeValue(e.target.value)}
+                    >
+                      <option value="">Select language…</option>
+                      {LANGUAGE_CHOICES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input value={sizeValue} onChange={(e) => setSizeValue(e.target.value)} />
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">

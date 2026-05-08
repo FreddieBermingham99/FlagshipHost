@@ -42,7 +42,6 @@ function quadAabb(quad: { corners: readonly { x: number; y: number }[] }): {
 async function businessNameTexturePng(
   text: string,
   color: string,
-  fontSize: number,
   texW: number,
   texH: number
 ): Promise<Buffer> {
@@ -51,9 +50,14 @@ async function businessNameTexturePng(
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+  // Auto-fit a single-line business name into the mapped rectangle.
+  const maxByHeight = Math.max(10, texH * 0.68)
+  const charCount = Math.max(1, escaped.length)
+  const maxByWidth = Math.max(10, (texW * 0.92) / (charCount * 0.56))
+  const fittedFontSize = Math.max(10, Math.min(maxByHeight, maxByWidth))
   const svg = `<svg width="${texW}" height="${texH}" xmlns="http://www.w3.org/2000/svg">
     <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-      fill="${color}" font-size="${fontSize}" font-family="Arial, sans-serif">${escaped}</text>
+      fill="${color}" font-size="${fittedFontSize}" textLength="${Math.max(1, texW * 0.92)}" lengthAdjust="spacingAndGlyphs" font-family="Arial, sans-serif">${escaped}</text>
   </svg>`
   return sharp(Buffer.from(svg)).png().toBuffer()
 }
@@ -122,13 +126,12 @@ export async function renderSignagePng(params: {
   if (biz) {
     const bRect = params.overlay.businessNameRect
     const bQuad = params.overlay.businessNameQuad
-    const font = params.overlay.businessFontSizePx || 42
     const color = params.overlay.businessTextColor || '#111111'
 
     if (bRect && bRect.width > 0 && bRect.height > 0) {
       const texW = Math.max(1, Math.round(bRect.width))
       const texH = Math.max(1, Math.round(bRect.height))
-      const tex = await businessNameTexturePng(biz, color, font, texW, texH)
+      const tex = await businessNameTexturePng(biz, color, texW, texH)
       layers.push({
         input: tex,
         top: Math.round(bRect.y),
@@ -138,7 +141,7 @@ export async function renderSignagePng(params: {
       const aabb = quadAabb(bQuad)
       const texW = Math.max(1, Math.ceil(aabb.maxX - aabb.minX))
       const texH = Math.max(1, Math.ceil(aabb.maxY - aabb.minY))
-      const tex = await businessNameTexturePng(biz, color, font, texW, texH)
+      const tex = await businessNameTexturePng(biz, color, texW, texH)
       layers.push({
         input: tex,
         top: Math.round(aabb.minY),

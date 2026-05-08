@@ -18,6 +18,7 @@ type CatalogOption = {
   option_name: string
   option_value: string
   design_image_url?: string | null
+  template_image_url?: string | null
 }
 
 type CatalogItem = {
@@ -25,6 +26,7 @@ type CatalogItem = {
   name: string
   description: string | null
   image_url: string | null
+  template_image_url?: string | null
   max_quantity?: number
   options: CatalogOption[]
 }
@@ -47,6 +49,7 @@ type ItemConfig = {
   quantity: number
   selected_options: Record<string, string>
   target_stashpoint_ids: string[]
+  custom_size_cm?: { width: string; height: string }
 }
 
 type Props = {
@@ -120,6 +123,61 @@ function selectedValueForType(
     if (v && String(v) === String(opt.option_value)) return String(v)
   }
   return ''
+}
+
+function resolveModalPreviewTemplate(
+  item: CatalogItem,
+  selectedOptions: Record<string, string>
+): { src: string | null; title: string } {
+  const typed = groupedOptionsByType(item)
+  const selectedDesign = selectedValueForType(selectedOptions, typed.design)
+  const scopedLanguages = languageOptionsForDesign(typed.language, selectedDesign)
+  const selectedLanguage = selectedValueForType(selectedOptions, scopedLanguages)
+
+  if (selectedLanguage) {
+    const langOpt = scopedLanguages.find((o) => o.option_value === selectedLanguage)
+    if (langOpt?.template_image_url?.trim()) {
+      return { src: langOpt.template_image_url.trim(), title: `Preview (${langOpt.option_name})` }
+    }
+  }
+  if (selectedDesign) {
+    const designOpt = typed.design.find((o) => o.option_value === selectedDesign)
+    if (designOpt?.template_image_url?.trim()) {
+      return { src: designOpt.template_image_url.trim(), title: `Preview (${designOpt.option_name})` }
+    }
+    if (designOpt?.design_image_url?.trim()) {
+      return { src: designOpt.design_image_url.trim(), title: `Preview (${designOpt.option_name})` }
+    }
+  }
+  if (item.template_image_url?.trim()) {
+    return { src: item.template_image_url.trim(), title: 'Preview (default template)' }
+  }
+  if (item.image_url?.trim()) {
+    return { src: item.image_url.trim(), title: 'Preview (default image)' }
+  }
+  return { src: null, title: 'Preview' }
+}
+
+function languageOptionsForDesign(
+  languages: CatalogOption[],
+  selectedDesignValue: string
+): CatalogOption[] {
+  if (!selectedDesignValue) return languages.filter((o) => o.option_group_label === 'Language')
+  const scopedLabel = `Language::${selectedDesignValue}`
+  const scoped = languages.filter((o) => o.option_group_label === scopedLabel)
+  if (scoped.length > 0) return scoped
+  return languages.filter((o) => o.option_group_label === 'Language')
+}
+
+function sizeOptionsForDesign(
+  sizes: CatalogOption[],
+  selectedDesignValue: string
+): CatalogOption[] {
+  if (!selectedDesignValue) return sizes.filter((o) => o.option_group_label === 'Size')
+  const scopedLabel = `Size::${selectedDesignValue}`
+  const scoped = sizes.filter((o) => o.option_group_label === scopedLabel)
+  if (scoped.length > 0) return scoped
+  return sizes.filter((o) => o.option_group_label === 'Size')
 }
 
 export default function SignageOrderingLanding({
@@ -225,6 +283,8 @@ export default function SignageOrderingLanding({
           ...(prev[itemId]?.selected_options || {}),
           [group]: value,
         },
+        custom_size_cm:
+          group.startsWith('Size') && value !== 'custom-cm' ? undefined : prev[itemId]?.custom_size_cm,
       },
     }))
   }
@@ -239,6 +299,24 @@ export default function SignageOrderingLanding({
           target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
         }),
         target_stashpoint_ids: ids,
+      },
+    }))
+  }
+
+  const setCustomSizeCm = (itemId: string, patch: Partial<{ width: string; height: string }>) => {
+    setConfigByItemId((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || {
+          quantity: 1,
+          selected_options: {},
+          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+        }),
+        custom_size_cm: {
+          width: prev[itemId]?.custom_size_cm?.width ?? '',
+          height: prev[itemId]?.custom_size_cm?.height ?? '',
+          ...patch,
+        },
       },
     }))
   }
@@ -316,7 +394,11 @@ export default function SignageOrderingLanding({
       const selectedOptions = cfg?.selected_options || {}
       const selectedDesign = selectedValueForType(selectedOptions, typed.design)
       const selectedLanguage = selectedValueForType(selectedOptions, typed.language)
-      const selectedSize = selectedValueForType(selectedOptions, typed.size)
+      const selectedSize = selectedValueForType(
+        selectedOptions,
+        sizeOptionsForDesign(typed.size, selectedDesign)
+      )
+      const customSize = cfg?.custom_size_cm
       return {
         catalog_item_id: item.id,
         item_name_snapshot: item.name,
@@ -329,6 +411,12 @@ export default function SignageOrderingLanding({
           __variation_signature: [selectedDesign, selectedLanguage, selectedSize]
             .filter(Boolean)
             .join(' | '),
+          ...(selectedSize === 'custom-cm' && customSize
+            ? {
+                __custom_size_cm_width: customSize.width,
+                __custom_size_cm_height: customSize.height,
+              }
+            : {}),
         },
       }
     })
@@ -552,6 +640,25 @@ export default function SignageOrderingLanding({
             <CardContent className="space-y-4">
               {modalTypedOptions && (
                 <>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                    {(() => {
+                      const selectedOptions = configByItemId[String(modalItem.id)]?.selected_options || {}
+                      const preview = resolveModalPreviewTemplate(modalItem, selectedOptions)
+                      return preview.src ? (
+                        <div>
+                          <p className="mb-2 text-sm font-medium text-slate-800">{preview.title}</p>
+                          <img
+                            src={preview.src}
+                            alt={preview.title}
+                            className="max-h-52 w-auto rounded border bg-white object-contain"
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">No template preview available yet.</p>
+                      )
+                    })()}
+                  </div>
+
                   {modalTypedOptions.design.length > 0 && (
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                       <p className="text-sm font-medium text-slate-800">1) Choose a design</p>
@@ -592,54 +699,96 @@ export default function SignageOrderingLanding({
                   {modalTypedOptions.language.length > 0 && (
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                       <p className="text-sm font-medium text-slate-800">2) Confirm language</p>
-                      {Object.entries(
-                        modalTypedOptions.language.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+                      {(() => {
+                        const selectedDesign = selectedValueForType(
+                          configByItemId[String(modalItem.id)]?.selected_options || {},
+                          modalTypedOptions.design
+                        )
+                        const scopedLanguages = languageOptionsForDesign(
+                          modalTypedOptions.language,
+                          selectedDesign
+                        )
+                        const grouped = scopedLanguages.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
                           if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
                           acc[opt.option_group_label].push(opt)
                           return acc
                         }, {})
-                      ).map(([groupLabel, opts]) => (
-                        <select
-                          key={groupLabel}
-                          className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
-                          value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
-                          onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
-                        >
-                          <option value="">Select language...</option>
-                          {opts.map((opt) => (
-                            <option key={opt.id} value={opt.option_value}>
-                              {opt.option_name}
-                            </option>
-                          ))}
-                        </select>
-                      ))}
+                        return Object.entries(grouped).map(([groupLabel, opts]) => (
+                          <select
+                            key={groupLabel}
+                            className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
+                            value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
+                            onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
+                          >
+                            <option value="">Select language...</option>
+                            {opts.map((opt) => (
+                              <option key={opt.id} value={opt.option_value}>
+                                {opt.option_name}
+                              </option>
+                            ))}
+                          </select>
+                        ))
+                      })()}
                     </div>
                   )}
 
                   {modalTypedOptions.size.length > 0 && (
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                       <p className="text-sm font-medium text-slate-800">3) Choose size</p>
-                      {Object.entries(
-                        modalTypedOptions.size.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+                      {(() => {
+                        const selectedOptions =
+                          configByItemId[String(modalItem.id)]?.selected_options || {}
+                        const selectedDesign = selectedValueForType(selectedOptions, modalTypedOptions.design)
+                        const scopedSizes = sizeOptionsForDesign(modalTypedOptions.size, selectedDesign)
+                        const grouped = scopedSizes.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
                           if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
                           acc[opt.option_group_label].push(opt)
                           return acc
                         }, {})
-                      ).map(([groupLabel, opts]) => (
-                        <select
-                          key={groupLabel}
-                          className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
-                          value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
-                          onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
-                        >
-                          <option value="">Select size...</option>
-                          {opts.map((opt) => (
-                            <option key={opt.id} value={opt.option_value}>
-                              {opt.option_name}
-                            </option>
-                          ))}
-                        </select>
-                      ))}
+                        return Object.entries(grouped).map(([groupLabel, opts]) => {
+                          const selectedSizeValue = selectedOptions[groupLabel] || ''
+                          return (
+                            <div key={groupLabel} className="space-y-2">
+                              <select
+                                className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
+                                value={selectedSizeValue}
+                                onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
+                              >
+                                <option value="">Select size...</option>
+                                {opts.map((opt) => (
+                                  <option key={opt.id} value={opt.option_value}>
+                                    {opt.option_name}
+                                  </option>
+                                ))}
+                              </select>
+                              {selectedSizeValue === 'custom-cm' && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    step="0.1"
+                                    placeholder="Width (cm)"
+                                    value={configByItemId[String(modalItem.id)]?.custom_size_cm?.width || ''}
+                                    onChange={(e) =>
+                                      setCustomSizeCm(String(modalItem.id), { width: e.target.value })
+                                    }
+                                  />
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    step="0.1"
+                                    placeholder="Height (cm)"
+                                    value={configByItemId[String(modalItem.id)]?.custom_size_cm?.height || ''}
+                                    onChange={(e) =>
+                                      setCustomSizeCm(String(modalItem.id), { height: e.target.value })
+                                    }
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })
+                      })()}
                     </div>
                   )}
 
