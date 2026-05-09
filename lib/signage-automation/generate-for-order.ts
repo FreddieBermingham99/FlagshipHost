@@ -12,7 +12,11 @@ import {
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
 import { getAutomationConfig } from '@/lib/signage-automation/config'
 import { buildQrUrl } from '@/lib/signage-automation/qr-url'
-import { passthroughTemplateAsPng, renderSignagePng } from '@/lib/signage-automation/render-png'
+import {
+  passthroughTemplateAsPng,
+  renderA5TwoUpOnA4LikeSheet,
+  renderSignagePng,
+} from '@/lib/signage-automation/render-png'
 import { uploadSignagePngToDrive } from '@/lib/signage-automation/drive-upload'
 
 function resolveGenerationTemplateUrl(
@@ -62,6 +66,24 @@ function mergeOverlayConfigs(
   return o
 }
 
+function resolveSelectedSizeValue(
+  selected: Record<string, string | string[]>,
+  matched: SignageCatalogOption[]
+): string {
+  const explicit = selected.__variation_size
+  const explicitValue = Array.isArray(explicit) ? explicit[0] : explicit
+  if (explicitValue) return String(explicitValue).trim()
+
+  const sizeOpt = matched.find((m) => m.option_type === 'size' || m.option_group_label.startsWith('Size'))
+  if (sizeOpt?.option_value) return String(sizeOpt.option_value).trim()
+  return ''
+}
+
+function isA5Selection(sizeValue: string): boolean {
+  const v = sizeValue.trim().toLowerCase()
+  return v === 'a5' || v.includes(' a5') || v.startsWith('a5 ') || v.includes('a5')
+}
+
 export type GenerateSignageAssetsOptions = {
   /** When set, PNGs upload here instead of the automation root folder. */
   uploadFolderId?: string
@@ -90,6 +112,7 @@ export async function generateSignageAssetsForOrder(
     const matchedOpts = catalogItem ? matchOrderOptions(catalogItem, item.selected_options) : []
     const templateSourceOpt = pickOptionTemplateSource(matchedOpts)
     const templateUrl = catalogItem ? resolveGenerationTemplateUrl(catalogItem, templateSourceOpt) : null
+    const selectedSizeValue = resolveSelectedSizeValue(item.selected_options, matchedOpts)
 
     if (!templateUrl) {
       hadErrors = true
@@ -130,6 +153,9 @@ export async function generateSignageAssetsForOrder(
               overlay.businessFontSizePx || settings.default_business_font_size_px,
           },
         })
+      }
+      if (isA5Selection(selectedSizeValue)) {
+        png = await renderA5TwoUpOnA4LikeSheet(png)
       }
       const uploaded = await uploadSignagePngToDrive({
         fileNameBase: `${stashpointId}-${item.item_name_snapshot}`,

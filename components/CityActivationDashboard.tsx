@@ -17,7 +17,81 @@ type ActivationRow = {
   revenue?: string
 }
 
-type CatalogItem = { id: number; name: string; is_visible: boolean }
+type CatalogOption = {
+  id: number
+  option_type?: 'size' | 'design' | 'language'
+  option_group_label: string
+  option_name: string
+  option_value: string
+  is_visible: boolean
+}
+
+type CatalogItem = {
+  id: number
+  name: string
+  is_visible: boolean
+  options?: CatalogOption[]
+}
+
+function groupedOptionsByType(item: CatalogItem): {
+  design: CatalogOption[]
+  language: CatalogOption[]
+  size: CatalogOption[]
+  other: Record<string, CatalogOption[]>
+} {
+  const options = (item.options || []).filter((o) => o.is_visible !== false)
+  const byType = {
+    design: options.filter((o) => o.option_type === 'design' || o.option_group_label === 'Design'),
+    language: options.filter((o) => o.option_type === 'language' || o.option_group_label.startsWith('Language')),
+    size: options.filter((o) => o.option_type === 'size' || o.option_group_label.startsWith('Size')),
+    other: {} as Record<string, CatalogOption[]>,
+  }
+  for (const opt of options) {
+    if (
+      byType.design.includes(opt) ||
+      byType.language.includes(opt) ||
+      byType.size.includes(opt)
+    ) {
+      continue
+    }
+    if (!byType.other[opt.option_group_label]) byType.other[opt.option_group_label] = []
+    byType.other[opt.option_group_label].push(opt)
+  }
+  return byType
+}
+
+function selectedValueForType(
+  selected: Record<string, string>,
+  options: CatalogOption[]
+): string {
+  for (const opt of options) {
+    const v = selected[opt.option_group_label]
+    if (v && String(v) === String(opt.option_value)) return String(v)
+  }
+  return ''
+}
+
+function languageOptionsForDesign(
+  languageOptions: CatalogOption[],
+  selectedDesignValue: string
+): CatalogOption[] {
+  if (!selectedDesignValue) return languageOptions.filter((o) => o.option_group_label === 'Language')
+  const scopedLabel = `Language::${selectedDesignValue}`
+  const scoped = languageOptions.filter((o) => o.option_group_label === scopedLabel)
+  if (scoped.length > 0) return scoped
+  return languageOptions.filter((o) => o.option_group_label === 'Language')
+}
+
+function sizeOptionsForDesign(
+  sizeOptions: CatalogOption[],
+  selectedDesignValue: string
+): CatalogOption[] {
+  if (!selectedDesignValue) return sizeOptions.filter((o) => o.option_group_label === 'Size')
+  const scopedLabel = `Size::${selectedDesignValue}`
+  const scoped = sizeOptions.filter((o) => o.option_group_label === scopedLabel)
+  if (scoped.length > 0) return scoped
+  return sizeOptions.filter((o) => o.option_group_label === 'Size')
+}
 
 function FilterPill({
   label,
@@ -53,6 +127,9 @@ export default function CityActivationDashboard() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set())
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([])
   const [selectedCatalogIds, setSelectedCatalogIds] = useState<number[]>([])
+  const [selectedOptionsByCatalogId, setSelectedOptionsByCatalogId] = useState<
+    Record<number, Record<string, string>>
+  >({})
   const [sendEmailNow, setSendEmailNow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -127,7 +204,47 @@ export default function CityActivationDashboard() {
   }
 
   const toggleCatalog = (id: number) => {
-    setSelectedCatalogIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+    setSelectedCatalogIds((prev) => {
+      const isSelected = prev.includes(id)
+      const nextIds = isSelected ? prev.filter((x) => x !== id) : [...prev, id]
+      if (!isSelected) {
+        const item = catalogItems.find((x) => x.id === id)
+        if (item) {
+          const typed = groupedOptionsByType(item)
+          const defaults: Record<string, string> = {}
+          if (typed.design.length > 0) {
+            defaults[typed.design[0].option_group_label] = typed.design[0].option_value
+          }
+          const selectedDesign = selectedValueForType(defaults, typed.design)
+          const scopedLanguages = languageOptionsForDesign(typed.language, selectedDesign)
+          if (scopedLanguages.length > 0) {
+            defaults[scopedLanguages[0].option_group_label] = scopedLanguages[0].option_value
+          }
+          const scopedSizes = sizeOptionsForDesign(typed.size, selectedDesign)
+          if (scopedSizes.length > 0) {
+            defaults[scopedSizes[0].option_group_label] = scopedSizes[0].option_value
+          }
+          setSelectedOptionsByCatalogId((prevOptions) => ({
+            ...prevOptions,
+            [id]: {
+              ...(prevOptions[id] || {}),
+              ...defaults,
+            },
+          }))
+        }
+      }
+      return nextIds
+    })
+  }
+
+  const setCatalogOption = (catalogId: number, groupLabel: string, optionValue: string) => {
+    setSelectedOptionsByCatalogId((prev) => ({
+      ...prev,
+      [catalogId]: {
+        ...(prev[catalogId] || {}),
+        [groupLabel]: optionValue,
+      },
+    }))
   }
 
   const createCampaignOrders = async () => {
@@ -152,6 +269,7 @@ export default function CityActivationDashboard() {
           city: cityTrimmed,
           rows: picked,
           catalogItemIds: selectedCatalogIds,
+          selectedOptionsByCatalogId: selectedOptionsByCatalogId,
           sendEmailNow,
         }),
       })
@@ -299,6 +417,97 @@ export default function CityActivationDashboard() {
                     />
                   ))}
               </div>
+              {selectedCatalogIds.length > 0 && (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                    Selected signage configuration
+                  </p>
+                  {selectedCatalogIds.map((catalogId) => {
+                    const item = catalogItems.find((x) => x.id === catalogId)
+                    if (!item) return null
+                    const typed = groupedOptionsByType(item)
+                    const selectedForItem = selectedOptionsByCatalogId[catalogId] || {}
+                    const selectedDesign = selectedValueForType(selectedForItem, typed.design)
+                    const scopedLanguages = languageOptionsForDesign(typed.language, selectedDesign)
+                    const scopedSizes = sizeOptionsForDesign(typed.size, selectedDesign)
+                    return (
+                      <div key={catalogId} className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                        <p className="text-sm font-medium text-slate-800">{item.name}</p>
+
+                        {typed.design.length > 0 && (
+                          <div>
+                            <Label className="text-xs text-slate-600">Design</Label>
+                            <select
+                              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                              value={
+                                selectedForItem[typed.design[0].option_group_label] ||
+                                typed.design[0].option_value
+                              }
+                              onChange={(e) =>
+                                setCatalogOption(catalogId, typed.design[0].option_group_label, e.target.value)
+                              }
+                            >
+                              {typed.design.map((opt) => (
+                                <option key={opt.id} value={opt.option_value}>
+                                  {opt.option_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {scopedLanguages.length > 0 && (
+                          <div>
+                            <Label className="text-xs text-slate-600">Language</Label>
+                            <select
+                              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                              value={
+                                selectedForItem[scopedLanguages[0].option_group_label] ||
+                                scopedLanguages[0].option_value
+                              }
+                              onChange={(e) =>
+                                setCatalogOption(
+                                  catalogId,
+                                  scopedLanguages[0].option_group_label,
+                                  e.target.value
+                                )
+                              }
+                            >
+                              {scopedLanguages.map((opt) => (
+                                <option key={opt.id} value={opt.option_value}>
+                                  {opt.option_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {scopedSizes.length > 0 && (
+                          <div>
+                            <Label className="text-xs text-slate-600">Size</Label>
+                            <select
+                              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                              value={
+                                selectedForItem[scopedSizes[0].option_group_label] ||
+                                scopedSizes[0].option_value
+                              }
+                              onChange={(e) =>
+                                setCatalogOption(catalogId, scopedSizes[0].option_group_label, e.target.value)
+                              }
+                            >
+                              {scopedSizes.map((opt) => (
+                                <option key={opt.id} value={opt.option_value}>
+                                  {opt.option_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {rows.length > 0 && (

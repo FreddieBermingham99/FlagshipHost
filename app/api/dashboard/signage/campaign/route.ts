@@ -139,6 +139,10 @@ export async function POST(req: Request) {
       : []
     const sendNow = Boolean(body.sendEmailNow)
     const rows = normalizeRows(body.rows)
+    const selectedOptionsByCatalogIdRaw =
+      body.selectedOptionsByCatalogId && typeof body.selectedOptionsByCatalogId === 'object'
+        ? (body.selectedOptionsByCatalogId as Record<string, unknown>)
+        : {}
 
     if (!city) return NextResponse.json({ error: 'city is required' }, { status: 400 })
     if (selectedCatalogIds.length === 0) {
@@ -178,10 +182,15 @@ export async function POST(req: Request) {
 
     for (const row of rows) {
       const items: SignageOrderItemInsert[] = chosenItems.map((i) => ({
+        // Carry selected variation options from city activation UI into each order item.
+        selected_options:
+          selectedOptionsByCatalogIdRaw[String(i.id)] &&
+          typeof selectedOptionsByCatalogIdRaw[String(i.id)] === 'object'
+            ? (selectedOptionsByCatalogIdRaw[String(i.id)] as Record<string, string | string[]>)
+            : {},
         catalog_item_id: i.id,
         item_name_snapshot: i.name,
         quantity: 1,
-        selected_options: {},
       }))
       const selectedSigns = chosenItems.map((i) => i.name.toLowerCase().replace(/\s+/g, '-'))
       const owner = row.ownerName?.trim() || ''

@@ -45,19 +45,22 @@ async function businessNameTexturePng(
   texW: number,
   texH: number
 ): Promise<Buffer> {
-  const escaped = text
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  const escaped = normalized
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-  // Auto-fit a single-line business name into the mapped rectangle.
+  // Auto-fit a single-line business name into the mapped rectangle
+  // without forcing glyph stretching (which can render poorly in Sharp).
   const maxByHeight = Math.max(10, texH * 0.68)
-  const charCount = Math.max(1, escaped.length)
-  const maxByWidth = Math.max(10, (texW * 0.92) / (charCount * 0.56))
+  const charCount = Math.max(1, normalized.length)
+  const approxGlyphWidth = 0.58
+  const maxByWidth = Math.max(10, (texW * 0.92) / (charCount * approxGlyphWidth))
   const fittedFontSize = Math.max(10, Math.min(maxByHeight, maxByWidth))
   const svg = `<svg width="${texW}" height="${texH}" xmlns="http://www.w3.org/2000/svg">
     <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-      fill="${color}" font-size="${fittedFontSize}" textLength="${Math.max(1, texW * 0.92)}" lengthAdjust="spacingAndGlyphs" font-family="Arial, sans-serif">${escaped}</text>
+      fill="${color}" font-size="${Math.round(fittedFontSize * 100) / 100}" font-family="Arial, Helvetica, sans-serif">${escaped}</text>
   </svg>`
   return sharp(Buffer.from(svg)).png().toBuffer()
 }
@@ -151,4 +154,30 @@ export async function renderSignagePng(params: {
   }
 
   return base.composite(layers).png().toBuffer()
+}
+
+/**
+ * Prepare an A5 artwork for "2-up on A4" printing:
+ * rotate 90deg and duplicate the same design on both halves.
+ */
+export async function renderA5TwoUpOnA4LikeSheet(inputPng: Buffer): Promise<Buffer> {
+  const rotated = await sharp(inputPng).rotate(90).png().toBuffer()
+  const meta = await sharp(rotated).metadata()
+  const w = Math.max(1, meta.width || 0)
+  const h = Math.max(1, meta.height || 0)
+  const canvas = sharp({
+    create: {
+      width: w,
+      height: h * 2,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    },
+  })
+  return canvas
+    .composite([
+      { input: rotated, top: 0, left: 0 },
+      { input: rotated, top: h, left: 0 },
+    ])
+    .png()
+    .toBuffer()
 }
