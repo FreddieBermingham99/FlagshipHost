@@ -46,21 +46,52 @@ async function businessNameTexturePng(
   texH: number
 ): Promise<Buffer> {
   const normalized = text.replace(/\s+/g, ' ').trim()
-  const escaped = normalized
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-  // Auto-fit a single-line business name into the mapped rectangle
-  // without forcing glyph stretching (which can render poorly in Sharp).
-  const maxByHeight = Math.max(10, texH * 0.68)
-  const charCount = Math.max(1, normalized.length)
-  const approxGlyphWidth = 0.58
-  const maxByWidth = Math.max(10, (texW * 0.92) / (charCount * approxGlyphWidth))
-  const fittedFontSize = Math.max(10, Math.min(maxByHeight, maxByWidth))
+  const escapeXml = (s: string) =>
+    s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+
+  const words = normalized.split(' ').filter(Boolean)
+  let lines = [normalized]
+  if (words.length >= 3 && normalized.length >= 18) {
+    let bestLeft = words[0]
+    let bestRight = words.slice(1).join(' ')
+    let bestDiff = Math.abs(bestLeft.length - bestRight.length)
+    for (let i = 1; i < words.length - 1; i++) {
+      const left = words.slice(0, i + 1).join(' ')
+      const right = words.slice(i + 1).join(' ')
+      const diff = Math.abs(left.length - right.length)
+      if (diff < bestDiff) {
+        bestDiff = diff
+        bestLeft = left
+        bestRight = right
+      }
+    }
+    lines = [bestLeft, bestRight]
+  }
+  const lineCount = lines.length
+  const longest = Math.max(...lines.map((l) => Math.max(1, l.length)))
+  const approxGlyphWidth = 0.56
+  // Slightly relaxed constraints: prefer readability over strict clipping.
+  const maxByWidth = (texW * 1.03) / (longest * approxGlyphWidth)
+  const maxByHeight = (texH * 0.9) / lineCount
+  const minByHeight = lineCount === 1 ? Math.max(13, texH * 0.36) : Math.max(12, texH * 0.23)
+  const fittedFontSize = Math.max(minByHeight, Math.min(maxByWidth, maxByHeight))
+
+  const lineHeight = fittedFontSize * 1.12
+  const totalBlockHeight = lineHeight * lineCount
+  const firstY = texH / 2 - totalBlockHeight / 2 + lineHeight * 0.82
+  const textLines = lines
+    .map(
+      (line, idx) =>
+        `<tspan x="50%" y="${Math.round((firstY + idx * lineHeight) * 100) / 100}">${escapeXml(line)}</tspan>`
+    )
+    .join('')
   const svg = `<svg width="${texW}" height="${texH}" xmlns="http://www.w3.org/2000/svg">
-    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-      fill="${color}" font-size="${Math.round(fittedFontSize * 100) / 100}" font-family="Arial, Helvetica, sans-serif">${escaped}</text>
+    <text text-anchor="middle"
+      fill="${color}" font-size="${Math.round(fittedFontSize * 100) / 100}" font-family="Arial, Helvetica, sans-serif">${textLines}</text>
   </svg>`
   return sharp(Buffer.from(svg)).png().toBuffer()
 }
