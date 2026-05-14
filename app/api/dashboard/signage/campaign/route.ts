@@ -16,6 +16,16 @@ import {
   listSignageCatalogItems,
   type SignageOrderItemInsert,
 } from '@/lib/submissions-db'
+import { buildItemSnapshotLabel } from '@/lib/signage-automation/item-snapshot-label'
+import {
+  aggregateCustomisedSupplierLinks,
+  aggregateNonUniqueSignageGrouped,
+  formatCustomisedSupplierLinksHtml,
+  formatCustomisedSupplierLinksText,
+  formatNonUniqueGroupedHtml,
+  formatNonUniqueGroupedText,
+  type ItemLineForNonUniqueAgg,
+} from '@/lib/signage-automation/non-unique-aggregate'
 
 type CampaignRow = {
   stashpointId: string
@@ -60,10 +70,37 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function parseQuantitiesByCatalogId(body: Record<string, unknown>): Map<number, number> {
+  const raw = body.quantitiesByCatalogId
+  const m = new Map<number, number>()
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      const id = parseInt(k, 10)
+      const q = Math.floor(Number(v))
+      if (Number.isFinite(id) && id > 0 && Number.isFinite(q) && q > 0) m.set(id, q)
+    }
+  }
+  return m
+}
+
+function selectedOptsForCatalog(
+  raw: Record<string, unknown>,
+  catalogId: number
+): Record<string, string | string[]> {
+  const block = raw[String(catalogId)]
+  if (block && typeof block === 'object' && !Array.isArray(block)) {
+    return block as Record<string, string | string[]>
+  }
+  return {}
+}
+
 async function sendImmediateSummaryEmail(params: {
   recipients: string[]
   city: string
   driveFolderUrl?: string
+  /** HTML inserted after the H2 (trusted: built with escapeHtml). */
+  summaryPreambleHtml: string
+  summaryPreambleText: string
   rows: Array<{
     stashpointId: string
     businessName: string
@@ -97,6 +134,7 @@ async function sendImmediateSummaryEmail(params: {
       : '<p><em>No Drive folder link (check GOOGLE_SIGNAGE_DRIVE_FOLDER_ID / automation settings).</em></p>'
 
   const html = `<h2>Immediate signage campaign order (${escapeHtml(params.city)})</h2>
+  ${params.summaryPreambleHtml}
   ${folderBlock}
   <table border="1" cellpadding="6" cellspacing="0">
   <thead><tr><th>Stashpoint ID</th><th>Business</th><th>Host First</th><th>Host Last</th><th>Phone</th><th>Ordered</th><th>Assets</th></tr></thead>
@@ -105,15 +143,13 @@ async function sendImmediateSummaryEmail(params: {
     params.driveFolderUrl && params.driveFolderUrl.trim()
       ? `Drive folder: ${params.driveFolderUrl.trim()}\n\n`
       : ''
-  const text =
-    textFolder +
-    params.rows
-      .map((r) => {
-        const n = hostNameCells(r.ownerName)
-        const assets = r.assetLinks.length > 0 ? r.assetLinks.join(' | ') : '—'
-        return `${r.stashpointId} | ${r.businessName} | ${n.first} | ${n.last} | ${r.phone} | ${r.ordered} | ${assets}`
-      })
-      .join('\n')
+  const text = params.summaryPreambleText + textFolder + params.rows
+    .map((r) => {
+      const n = hostNameCells(r.ownerName)
+      const assets = r.assetLinks.length > 0 ? r.assetLinks.join(' | ') : '—'
+      return `${r.stashpointId} | ${r.businessName} | ${n.first} | ${n.last} | ${r.phone} | ${r.ordered} | ${assets}`
+    })
+    .join('\n')
   for (const to of params.recipients) {
     const result = await sendCampaignEmail({
       to,
@@ -159,6 +195,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Selected signage types not found' }, { status: 400 })
     }
 
+    const qtyByCatalog = parseQuantitiesByCatalogId(body)
+    const orderedDescription = chosenItems
+      .map((i) => {
+        const sel = selectedOptsForCatalog(selectedOptionsByCatalogIdRaw, i.id)
+        const mq = Math.max(1, i.max_quantity || 1)
+        const q = Math.min(mq, Math.max(1, qtyByCatalog.get(i.id) ?? 1))
+        const snap = buildItemSnapshotLabel(i.name, sel)
+        return q > 1 ? `${q} × ${snap}` : snap
+      })
+      .join(', ')
+
+    const ordersForAgg: Array<{ items: ItemLineForNonUniqueAgg[] }> = []
+
     const automation = await getAutomationConfig()
     const rootFolder = String(automation.google_drive_folder_id || '').trim()
     let uploadFolderId: string | undefined
@@ -181,17 +230,17 @@ export async function POST(req: Request) {
     }> = []
 
     for (const row of rows) {
-      const items: SignageOrderItemInsert[] = chosenItems.map((i) => ({
-        // Carry selected variation options from city activation UI into each order item.
-        selected_options:
-          selectedOptionsByCatalogIdRaw[String(i.id)] &&
-          typeof selectedOptionsByCatalogIdRaw[String(i.id)] === 'object'
-            ? (selectedOptionsByCatalogIdRaw[String(i.id)] as Record<string, string | string[]>)
-            : {},
-        catalog_item_id: i.id,
-        item_name_snapshot: i.name,
-        quantity: 1,
-      }))
+      const items: SignageOrderItemInsert[] = chosenItems.map((i) => {
+        const sel = selectedOptsForCatalog(selectedOptionsByCatalogIdRaw, i.id)
+        const mq = Math.max(1, i.max_quantity || 1)
+        const q = Math.min(mq, Math.max(1, qtyByCatalog.get(i.id) ?? 1))
+        return {
+          selected_options: sel,
+          catalog_item_id: i.id,
+          item_name_snapshot: buildItemSnapshotLabel(i.name, sel),
+          quantity: q,
+        }
+      })
       const selectedSigns = chosenItems.map((i) => i.name.toLowerCase().replace(/\s+/g, '-'))
       const owner = row.ownerName?.trim() || ''
       const contactName = owner || 'Host name not in Stasher'
@@ -234,12 +283,20 @@ export async function POST(req: Request) {
         items,
       })
       orderIds.push(order.id)
+      ordersForAgg.push({
+        items: order.items.map((it) => ({
+          catalog_item_id: it.catalog_item_id,
+          quantity: it.quantity,
+          item_name_snapshot: it.item_name_snapshot,
+          selected_options: it.selected_options ?? {},
+        })),
+      })
       summaryBase.push({
         stashpointId: row.stashpointId,
         businessName: row.businessName,
         ownerName: owner || undefined,
         phone: row.ownerPhone || '',
-        ordered: chosenItems.map((i) => i.name).join(', '),
+        ordered: orderedDescription,
       })
     }
 
@@ -275,7 +332,34 @@ export async function POST(req: Request) {
           warning: 'No digest recipients configured; immediate email was not sent.',
         })
       }
-      await sendImmediateSummaryEmail({ recipients, city, driveFolderUrl, rows: summaryRows })
+      const nuGroups = aggregateNonUniqueSignageGrouped(ordersForAgg, byId)
+      const nuHtml = formatNonUniqueGroupedHtml(escapeHtml, nuGroups)
+      const nuTextLines = formatNonUniqueGroupedText(nuGroups)
+      const cust = aggregateCustomisedSupplierLinks(ordersForAgg, byId)
+      const custHtml = formatCustomisedSupplierLinksHtml(escapeHtml, cust)
+      const custText = formatCustomisedSupplierLinksText(cust)
+
+      const summaryPreambleHtml = [
+        nuHtml ? `<h3>Non-unique signage (totals for this run)</h3>${nuHtml}` : '',
+        custHtml,
+      ]
+        .filter(Boolean)
+        .join('')
+      const summaryPreambleText = [
+        nuTextLines.length > 0 ? `Non-unique signage (totals for this run):\n${nuTextLines.join('\n')}\n` : '',
+        custText,
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      await sendImmediateSummaryEmail({
+        recipients,
+        city,
+        driveFolderUrl,
+        summaryPreambleHtml,
+        summaryPreambleText,
+        rows: summaryRows,
+      })
     }
 
     return NextResponse.json({ ok: true, created: rows.length, batchId })

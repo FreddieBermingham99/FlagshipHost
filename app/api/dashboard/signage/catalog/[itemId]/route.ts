@@ -88,6 +88,12 @@ export async function PATCH(
       max_quantity: typeof patchBody.max_quantity === 'number' ? patchBody.max_quantity : undefined,
       is_visible: typeof patchBody.is_visible === 'boolean' ? patchBody.is_visible : undefined,
       sort_order: typeof patchBody.sort_order === 'number' ? patchBody.sort_order : undefined,
+      supplier_url:
+        'supplier_url' in patchBody
+          ? patchBody.supplier_url == null || patchBody.supplier_url === ''
+            ? ''
+            : String(patchBody.supplier_url).trim()
+          : undefined,
     })
     if (!updated) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
     return NextResponse.json({ item: updated })

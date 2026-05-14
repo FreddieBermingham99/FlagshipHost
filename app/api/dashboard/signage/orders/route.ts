@@ -31,6 +31,9 @@ export async function GET(req: Request) {
     if (source) filters.source = source.split(',').filter(Boolean)
     const search = url.searchParams.get('search')
     if (search) filters.search = search
+    const submissionBatchId =
+      url.searchParams.get('submission_batch_id') || url.searchParams.get('batch')
+    if (submissionBatchId) filters.submission_batch_id = submissionBatchId
     const page = url.searchParams.get('page')
     if (page) filters.page = parseInt(page, 10)
     const limit = url.searchParams.get('limit')

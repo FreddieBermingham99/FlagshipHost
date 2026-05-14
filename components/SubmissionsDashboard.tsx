@@ -275,6 +275,33 @@ function SubmissionDetail({
             </div>
           )}
 
+          {(submission.submission_batch_id || submission.stashpoint_id) && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                Signage orders (fulfilment)
+              </p>
+              <p className="mb-2 text-xs text-slate-600">
+                Open signage orders to select rows, then use <strong>Generate &amp; email</strong> to re-run asset
+                generation and receive Drive links by email.
+              </p>
+              {submission.submission_batch_id ? (
+                <a
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                  href={`/dashboard/signage/orders?batch=${encodeURIComponent(submission.submission_batch_id)}`}
+                >
+                  View signage orders for this submission batch →
+                </a>
+              ) : submission.stashpoint_id ? (
+                <a
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                  href={`/dashboard/signage/orders?stashpoint_id=${encodeURIComponent(String(submission.stashpoint_id))}`}
+                >
+                  View signage orders for stashpoint {submission.stashpoint_id} →
+                </a>
+              ) : null}
+            </div>
+          )}
+
           {/* Compliance */}
           {(submission.stashpoint_hours !== null || submission.stashpoint_capacity !== null) && (
             <div>

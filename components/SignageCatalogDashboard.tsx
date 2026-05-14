@@ -43,6 +43,7 @@ type CatalogItem = {
   is_visible: boolean
   sort_order: number
   orders_count: number
+  supplier_url?: string | null
   options: CatalogOption[]
 }
 
@@ -129,6 +130,7 @@ export default function SignageCatalogDashboard() {
   const [description, setDescription] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [templateImageUrl, setTemplateImageUrl] = useState('')
+  const [newSupplierUrl, setNewSupplierUrl] = useState('')
   const [newItemNoCustomisation, setNewItemNoCustomisation] = useState(false)
   const [maxQuantity, setMaxQuantity] = useState(1)
   const [optionItemId, setOptionItemId] = useState<number | null>(null)
@@ -147,6 +149,7 @@ export default function SignageCatalogDashboard() {
   const [editItemDescription, setEditItemDescription] = useState('')
   const [editItemImageUrl, setEditItemImageUrl] = useState('')
   const [editTemplateImageUrl, setEditTemplateImageUrl] = useState('')
+  const [editSupplierUrl, setEditSupplierUrl] = useState('')
   const [editItemMaxQuantity, setEditItemMaxQuantity] = useState(1)
   const [editItemRequiresQr, setEditItemRequiresQr] = useState(true)
   const [editNoCustomisation, setEditNoCustomisation] = useState(false)
@@ -183,14 +186,17 @@ export default function SignageCatalogDashboard() {
         image_url: imageUrl,
         template_image_url: templateImageUrl.trim() || null,
         requires_customisation: !newItemNoCustomisation,
+        requires_unique_qr: !newItemNoCustomisation ? false : true,
         max_quantity: Math.max(1, maxQuantity || 1),
         is_visible: true,
+        supplier_url: newSupplierUrl.trim() || null,
       }),
     })
     setName('')
     setDescription('')
     setImageUrl('')
     setTemplateImageUrl('')
+    setNewSupplierUrl('')
     setNewItemNoCustomisation(false)
     setMaxQuantity(1)
     fetchItems()
@@ -242,6 +248,7 @@ export default function SignageCatalogDashboard() {
     setEditItemDescription(item.description || '')
     setEditItemImageUrl(item.image_url || '')
     setEditTemplateImageUrl(item.template_image_url?.trim() ? item.template_image_url : '')
+    setEditSupplierUrl(item.supplier_url?.trim() ? item.supplier_url : '')
     setEditItemMaxQuantity(Math.max(1, item.max_quantity || 1))
     setEditItemRequiresQr(item.requires_unique_qr !== false)
     setEditNoCustomisation(item.requires_customisation === false)
@@ -263,9 +270,10 @@ export default function SignageCatalogDashboard() {
         image_url: editItemImageUrl,
         template_image_url: editTemplateImageUrl.trim(),
         requires_customisation: !editNoCustomisation,
-        requires_unique_qr: editItemRequiresQr,
+        requires_unique_qr: editNoCustomisation ? false : editItemRequiresQr,
         overlay_config: overlayRectsOnlyForSave(editOverlay) as Record<string, unknown>,
         max_quantity: Math.max(1, editItemMaxQuantity || 1),
+        supplier_url: editSupplierUrl.trim() || null,
       }),
     })
     closeEditItemModal()
@@ -560,6 +568,18 @@ export default function SignageCatalogDashboard() {
                   className="text-xs"
                 />
               </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs font-medium text-slate-700">Supplier URL (optional)</Label>
+                <p className="text-[11px] text-slate-500">
+                  Shown in order summary emails when this type is on an order (e.g. print shop link).
+                </p>
+                <Input
+                  value={newSupplierUrl}
+                  onChange={(e) => setNewSupplierUrl(e.target.value)}
+                  placeholder="https://…"
+                  className="text-xs"
+                />
+              </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
@@ -567,7 +587,7 @@ export default function SignageCatalogDashboard() {
                 checked={newItemNoCustomisation}
                 onChange={(e) => setNewItemNoCustomisation(e.target.checked)}
               />
-              No customisation (generated file is the template only — no QR or business name)
+              Non-unique signage — template only (no QR or business name; use for flags and other generic prints)
             </label>
             <div className="flex flex-wrap items-end gap-3">
               <div>
@@ -608,6 +628,19 @@ export default function SignageCatalogDashboard() {
                         Max qty per order:{' '}
                         <span className="font-semibold text-slate-700">{Math.max(1, item.max_quantity || 1)}</span>
                       </p>
+                      {item.supplier_url?.trim() ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Supplier:{' '}
+                          <a
+                            href={item.supplier_url.trim()}
+                            className="font-medium text-blue-600 hover:underline"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {item.supplier_url.trim()}
+                          </a>
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => openAddOptionModal(item.id)}>
@@ -762,13 +795,24 @@ export default function SignageCatalogDashboard() {
                   />
                 </div>
               </div>
+              <div className="space-y-2 border-t pt-4">
+                <Label>Supplier URL (optional)</Label>
+                <p className="text-[11px] text-slate-500">
+                  Included in order summary emails when this signage type appears on an order.
+                </p>
+                <Input
+                  value={editSupplierUrl}
+                  onChange={(e) => setEditSupplierUrl(e.target.value)}
+                  placeholder="https://…"
+                />
+              </div>
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
                   checked={editNoCustomisation}
                   onChange={(e) => setEditNoCustomisation(e.target.checked)}
                 />
-                No customisation (skip QR and business name — upload template as-is)
+                Non-unique signage — template only (no QR or business name)
               </label>
               {!editNoCustomisation ? (
                 <SignageTemplateMapper

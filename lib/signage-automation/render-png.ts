@@ -1,9 +1,39 @@
 import 'server-only'
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
+import { registerFont } from '@napi-rs/canvas/node-canvas'
 import QRCode from 'qrcode'
 import sharp from 'sharp'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
+
+const SIGNAGE_BUSINESS_FONT_FAMILY = 'DM Sans'
+/** Google Fonts OFL variable DM Sans (latin + latin-ext). */
+const SIGNAGE_BUSINESS_FONT_FILE = 'DMSans-Variable.ttf'
+
+let signageBusinessFontRegistered: boolean | null = null
+
+function ensureSignageBusinessFont(): boolean {
+  if (signageBusinessFontRegistered !== null) return signageBusinessFontRegistered
+  try {
+    const fontPath = join(process.cwd(), 'lib/signage-automation/fonts', SIGNAGE_BUSINESS_FONT_FILE)
+    if (!existsSync(fontPath)) {
+      console.warn('[signage] DM Sans font file missing at', fontPath)
+      signageBusinessFontRegistered = false
+      return false
+    }
+    registerFont(fontPath, { family: SIGNAGE_BUSINESS_FONT_FAMILY })
+    signageBusinessFontRegistered = true
+    return true
+  } catch (err) {
+    console.warn('[signage] DM Sans registration failed; using sans-serif fallback', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    signageBusinessFontRegistered = false
+    return false
+  }
+}
 
 async function loadTemplateBuffer(templateUrl: string): Promise<Buffer> {
   const t = templateUrl.trim()
@@ -41,8 +71,12 @@ function quadAabb(quad: { corners: readonly { x: number; y: number }[] }): {
 }
 
 /** Split long names onto two balanced lines when helpful. */
-function splitBusinessNameLines(normalized: string): string[] {
+function splitBusinessNameLines(normalized: string, boxW: number, boxH: number): string[] {
   const words = normalized.split(' ').filter(Boolean)
+  // Tall narrow strip: two-word names on one line get very wide — split for a better fit.
+  if (words.length === 2 && boxW < boxH * 0.62) {
+    return [words[0], words[1]]
+  }
   if (words.length < 3 || normalized.length < 18) return [normalized]
   let bestLeft = words[0]
   let bestRight = words.slice(1).join(' ')
@@ -61,8 +95,8 @@ function splitBusinessNameLines(normalized: string): string[] {
 }
 
 /**
- * Rasterise business name with @napi-rs/canvas (real fonts + measureText).
- * Sharp's SVG/librsvg path is unreliable on Linux (missing Arial, tspan quirks).
+ * Rasterise business name with @napi-rs/canvas (DM Sans when available).
+ * Chooses the largest font size that fits in the middle 90% of the texture (5% margin each side) using measureText.
  */
 async function businessNameTexturePng(
   text: string,
@@ -73,30 +107,50 @@ async function businessNameTexturePng(
   const w = Math.max(1, Math.round(texW))
   const h = Math.max(1, Math.round(texH))
   const normalized = text.replace(/\s+/g, ' ').trim()
-  const lines = splitBusinessNameLines(normalized)
+  const lines = splitBusinessNameLines(normalized, w, h)
+
+  const useDmSans = ensureSignageBusinessFont()
+  const fontFamilyCss = useDmSans ? `"${SIGNAGE_BUSINESS_FONT_FAMILY}"` : 'sans-serif'
 
   const canvas = createCanvas(w, h)
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, w, h)
   ctx.fillStyle = color
 
-  const maxW = w * 1.12
-  const maxH = h * 1.1
-  const lineGap = 1.14
+  const margin = 0.05
+  const usableW = w * (1 - 2 * margin)
+  const usableH = h * (1 - 2 * margin)
 
-  let fontSize = Math.min(240, Math.floor(Math.min(w / 2, h)))
-  while (fontSize >= 6) {
-    ctx.font = `600 ${fontSize}px sans-serif`
-    const widths = lines.map((line) => ctx.measureText(line).width)
-    const maxLineW = Math.max(...widths, 1)
-    const lineHeight = fontSize * lineGap
-    const blockH = lines.length * lineHeight
-    if (maxLineW <= maxW && blockH <= maxH) break
-    fontSize -= 1
+  const lineGap = 1.2
+  const n = lines.length
+
+  const fitsFontSize = (fs: number): boolean => {
+    ctx.font = `500 ${fs}px ${fontFamilyCss}`
+    const maxLw = Math.max(...lines.map((line) => ctx.measureText(line).width), 0)
+    const blockH = n * fs * lineGap
+    return maxLw <= usableW && blockH <= usableH
   }
 
-  if (fontSize < 6) fontSize = 6
-  ctx.font = `600 ${fontSize}px sans-serif`
+  const minFs = 6
+  const maxFsCandidate = Math.min(768, Math.max(w, h) * 2)
+  let hi = Math.max(minFs, Math.floor(maxFsCandidate))
+  let lo = minFs
+  let fontSize = minFs
+  if (fitsFontSize(hi)) {
+    fontSize = hi
+  } else if (fitsFontSize(lo)) {
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi + 1) / 2)
+      if (fitsFontSize(mid)) {
+        lo = mid
+      } else {
+        hi = mid - 1
+      }
+    }
+    fontSize = lo
+  }
+
+  ctx.font = `500 ${fontSize}px ${fontFamilyCss}`
 
   const lineHeight = fontSize * lineGap
   const blockH = lines.length * lineHeight
@@ -104,10 +158,16 @@ async function businessNameTexturePng(
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   const cx = w / 2
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(0, 0, w, h)
+  ctx.clip()
   for (const line of lines) {
     ctx.fillText(line, cx, y)
     y += lineHeight
   }
+  ctx.restore()
 
   return canvas.toBuffer('image/png')
 }

@@ -125,6 +125,7 @@ WHERE max_quantity IS NULL OR max_quantity < 1;
 
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS template_image_url TEXT;
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS requires_customisation BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS supplier_url TEXT;
 
 CREATE TABLE IF NOT EXISTS signage_catalog_item_options (
   id SERIAL PRIMARY KEY,
@@ -683,13 +684,15 @@ export type SignageCatalogItem = {
   image_url: string | null
   /** Flat print template for compositing; when null, generation falls back to image_url. */
   template_image_url: string | null
-  /** When false, generated file is the template only (no QR or business name). */
+  /** When false, this is non-unique signage: generated file is the template only (no QR or business name). */
   requires_customisation: boolean
   requires_unique_qr: boolean
   overlay_config: Record<string, unknown>
   max_quantity: number
   is_visible: boolean
   sort_order: number
+  /** Optional purchasing / supplier page shown in order summary emails when this type is on an order. */
+  supplier_url: string | null
   orders_count: number
   created_at: string
   updated_at: string
@@ -710,6 +713,7 @@ export type SignageCatalogItemInsert = {
   max_quantity?: number
   is_visible?: boolean
   sort_order?: number
+  supplier_url?: string | null
 }
 
 export type SignageCatalogItemUpdate = Partial<SignageCatalogItemInsert>
@@ -845,8 +849,8 @@ export async function createSignageCatalogItem(
   return withClient(async (c) => {
     const res = await c.query<SignageCatalogItem>(
       `INSERT INTO signage_catalog_items
-       (name, description, image_url, template_image_url, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+       (name, description, image_url, template_image_url, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order, supplier_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
        RETURNING *`,
       [
         data.name,
@@ -859,6 +863,7 @@ export async function createSignageCatalogItem(
         Math.max(1, data.max_quantity ?? 1),
         data.is_visible ?? true,
         data.sort_order ?? 0,
+        data.supplier_url != null && String(data.supplier_url).trim() ? String(data.supplier_url).trim() : null,
       ]
     )
     return res.rows[0]
@@ -884,6 +889,7 @@ export async function updateSignageCatalogItem(
          max_quantity = COALESCE($8, max_quantity),
          is_visible = COALESCE($9, is_visible),
          sort_order = COALESCE($10, sort_order),
+         supplier_url = COALESCE($12, supplier_url),
          updated_at = now()
        WHERE id = $11
        RETURNING *`,
@@ -899,6 +905,11 @@ export async function updateSignageCatalogItem(
         data.is_visible ?? null,
         data.sort_order ?? null,
         id,
+        data.supplier_url !== undefined
+          ? data.supplier_url != null && String(data.supplier_url).trim()
+            ? String(data.supplier_url).trim()
+            : ''
+          : null,
       ]
     )
     return res.rows[0] ?? null
@@ -1071,6 +1082,8 @@ export type SignageOrderFilters = {
   business_name?: string
   city?: string
   source?: string[]
+  /** Match bulk campaign / programme batch id on signage_orders */
+  submission_batch_id?: string
   search?: string
   page?: number
   limit?: number
@@ -1309,6 +1322,11 @@ export async function listSignageOrders(
     params.push(filters.source)
     i++
   }
+  if (filters.submission_batch_id?.trim()) {
+    conditions.push(`submission_batch_id = $${i}`)
+    params.push(filters.submission_batch_id.trim())
+    i++
+  }
   if (filters.search) {
     conditions.push(
       `(business_name ILIKE $${i} OR contact_name ILIKE $${i} OR contact_email ILIKE $${i} OR address_city ILIKE $${i})`
@@ -1459,7 +1477,13 @@ export type SignageDigestOrderRow = {
   business_name: string
   contact_name: string
   contact_phone: string | null
-  items: Array<{ item_name_snapshot: string; quantity: number; generated_asset_link: string | null }>
+  items: Array<{
+    item_name_snapshot: string
+    quantity: number
+    generated_asset_link: string | null
+    catalog_item_id: number | null
+    selected_options: Record<string, string | string[]>
+  }>
 }
 
 export async function listSignageOrdersForDigest(sinceIso: string): Promise<SignageDigestOrderRow[]> {
@@ -1475,9 +1499,12 @@ export async function listSignageOrdersForDigest(sinceIso: string): Promise<Sign
       item_name_snapshot: string
       quantity: number
       generated_asset_link: string | null
+      catalog_item_id: number | null
+      selected_options: Record<string, string | string[]>
     }>(
       `SELECT so.id, so.created_at, so.stashpoint_id, so.business_name, so.contact_name, so.contact_phone,
-              soi.item_name_snapshot, soi.quantity, soi.generated_asset_link
+              soi.item_name_snapshot, soi.quantity, soi.generated_asset_link,
+              soi.catalog_item_id, soi.selected_options
        FROM signage_orders so
        JOIN signage_order_items soi ON soi.order_id = so.id
        WHERE so.created_at > $1::timestamptz
@@ -1492,6 +1519,11 @@ export async function listSignageOrdersForDigest(sinceIso: string): Promise<Sign
           item_name_snapshot: r.item_name_snapshot,
           quantity: r.quantity,
           generated_asset_link: r.generated_asset_link,
+          catalog_item_id: r.catalog_item_id,
+          selected_options:
+            r.selected_options && typeof r.selected_options === 'object' && !Array.isArray(r.selected_options)
+              ? (r.selected_options as Record<string, string | string[]>)
+              : {},
         })
         continue
       }
@@ -1507,6 +1539,11 @@ export async function listSignageOrdersForDigest(sinceIso: string): Promise<Sign
             item_name_snapshot: r.item_name_snapshot,
             quantity: r.quantity,
             generated_asset_link: r.generated_asset_link,
+            catalog_item_id: r.catalog_item_id,
+            selected_options:
+              r.selected_options && typeof r.selected_options === 'object' && !Array.isArray(r.selected_options)
+                ? (r.selected_options as Record<string, string | string[]>)
+                : {},
           },
         ],
       })

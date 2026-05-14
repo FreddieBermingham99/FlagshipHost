@@ -3,10 +3,19 @@ import 'server-only'
 import { sendCampaignEmail } from '@/lib/email/resend-campaign'
 import {
   getSignageAutomationSettings,
+  listSignageCatalogItems,
   listSignageOrdersForDigest,
   setSignageAutomationSettings,
 } from '@/lib/submissions-db'
 import { getAutomationConfig } from '@/lib/signage-automation/config'
+import {
+  aggregateCustomisedSupplierLinks,
+  aggregateNonUniqueSignageGrouped,
+  formatCustomisedSupplierLinksHtml,
+  formatCustomisedSupplierLinksText,
+  formatNonUniqueGroupedHtml,
+  formatNonUniqueGroupedText,
+} from '@/lib/signage-automation/non-unique-aggregate'
 
 function isFirstOrThirdMonday(d: Date): boolean {
   if (d.getDay() !== 1) return false
@@ -17,6 +26,14 @@ function isFirstOrThirdMonday(d: Date): boolean {
 function splitName(fullName: string): { first: string; last: string } {
   const parts = fullName.trim().split(/\s+/).filter(Boolean)
   return { first: parts[0] || '', last: parts.slice(1).join(' ') }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 export async function runSignageDigest(now = new Date()): Promise<{ ok: boolean; message: string }> {
@@ -32,6 +49,27 @@ export async function runSignageDigest(now = new Date()): Promise<{ ok: boolean;
     await setSignageAutomationSettings({ last_signage_digest_sent_at: now.toISOString() })
     return { ok: true, message: 'No new orders' }
   }
+  const catalog = await listSignageCatalogItems(false)
+  const catalogById = new Map(catalog.map((c) => [c.id, c]))
+  const nuGroups = aggregateNonUniqueSignageGrouped(orders, catalogById)
+  const nuHtml = formatNonUniqueGroupedHtml(escapeHtml, nuGroups)
+  const nuTextLines = formatNonUniqueGroupedText(nuGroups)
+  const cust = aggregateCustomisedSupplierLinks(orders, catalogById)
+  const custHtml = formatCustomisedSupplierLinksHtml(escapeHtml, cust)
+  const custText = formatCustomisedSupplierLinksText(cust)
+
+  const nonUniqueHtml = [
+    nuHtml ? `<h3>Non-unique signage (totals in this digest)</h3>${nuHtml}` : '',
+    custHtml,
+  ]
+    .filter(Boolean)
+    .join('')
+  const nonUniqueText = [
+    nuTextLines.length > 0 ? `Non-unique signage (totals in this digest):\n${nuTextLines.join('\n')}\n` : '',
+    custText,
+  ]
+    .filter(Boolean)
+    .join('\n')
   const rows = orders
     .map((o) => {
       const name = splitName(o.contact_name)
@@ -49,11 +87,12 @@ export async function runSignageDigest(now = new Date()): Promise<{ ok: boolean;
     })
     .join('')
   const html = `<h2>Signage orders digest</h2>
+  ${nonUniqueHtml}
   <table border="1" cellpadding="6" cellspacing="0">
     <thead><tr><th>Stashpoint ID</th><th>Business</th><th>First name</th><th>Last name</th><th>Phone</th><th>Ordered</th><th>Assets</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`
-  const text = orders
+  const text = nonUniqueText + orders
     .map((o) => `${o.stashpoint_id || ''} | ${o.business_name} | ${o.contact_name} | ${o.items.map((i) => `${i.item_name_snapshot}x${i.quantity}`).join(', ')}`)
     .join('\n')
   for (const to of settings.digest_recipients) {

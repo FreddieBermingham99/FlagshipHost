@@ -30,6 +30,8 @@ type CatalogItem = {
   id: number
   name: string
   is_visible: boolean
+  max_quantity?: number
+  requires_customisation?: boolean
   options?: CatalogOption[]
 }
 
@@ -130,6 +132,7 @@ export default function CityActivationDashboard() {
   const [selectedOptionsByCatalogId, setSelectedOptionsByCatalogId] = useState<
     Record<number, Record<string, string>>
   >({})
+  const [quantitiesByCatalogId, setQuantitiesByCatalogId] = useState<Record<number, number>>({})
   const [sendEmailNow, setSendEmailNow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -207,7 +210,13 @@ export default function CityActivationDashboard() {
     setSelectedCatalogIds((prev) => {
       const isSelected = prev.includes(id)
       const nextIds = isSelected ? prev.filter((x) => x !== id) : [...prev, id]
-      if (!isSelected) {
+      if (isSelected) {
+        setQuantitiesByCatalogId((pq) => {
+          const next = { ...pq }
+          delete next[id]
+          return next
+        })
+      } else {
         const item = catalogItems.find((x) => x.id === id)
         if (item) {
           const typed = groupedOptionsByType(item)
@@ -232,6 +241,7 @@ export default function CityActivationDashboard() {
             },
           }))
         }
+        setQuantitiesByCatalogId((pq) => ({ ...pq, [id]: 1 }))
       }
       return nextIds
     })
@@ -270,6 +280,7 @@ export default function CityActivationDashboard() {
           rows: picked,
           catalogItemIds: selectedCatalogIds,
           selectedOptionsByCatalogId: selectedOptionsByCatalogId,
+          quantitiesByCatalogId,
           sendEmailNow,
         }),
       })
@@ -432,7 +443,28 @@ export default function CityActivationDashboard() {
                     const scopedSizes = sizeOptionsForDesign(typed.size, selectedDesign)
                     return (
                       <div key={catalogId} className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-sm font-medium text-slate-800">{item.name}</p>
+                        <div className="flex flex-wrap items-end justify-between gap-3">
+                          <p className="text-sm font-medium text-slate-800">{item.name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Label className="text-xs text-slate-600">Qty per host</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={Math.max(1, item.max_quantity || 1)}
+                              className="h-9 w-20 text-sm"
+                              value={quantitiesByCatalogId[catalogId] ?? 1}
+                              onChange={(e) => {
+                                const raw = Math.floor(Number(e.target.value))
+                                const max = Math.max(1, item.max_quantity || 1)
+                                const v = Math.min(max, Math.max(1, Number.isFinite(raw) ? raw : 1))
+                                setQuantitiesByCatalogId((prev) => ({ ...prev, [catalogId]: v }))
+                              }}
+                            />
+                            {item.requires_customisation === false ? (
+                              <span className="text-xs font-medium text-slate-500">Non-unique signage</span>
+                            ) : null}
+                          </div>
+                        </div>
 
                         {typed.design.length > 0 && (
                           <div>

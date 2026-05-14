@@ -11,10 +11,12 @@ import {
   XCircle,
   Truck,
   Trash2,
+  Mail,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 type Order = {
   id: number
@@ -36,6 +38,8 @@ type OrderItem = {
   item_name_snapshot: string
   quantity: number
   selected_options: Record<string, string | string[]>
+  generated_asset_link?: string | null
+  asset_error?: string | null
 }
 
 type OrderDetail = Order & {
@@ -56,6 +60,8 @@ type FiltersState = {
   business_name: string
   stashpoint_id: string
   source: string[]
+  /** Filter signage_orders.submission_batch_id (e.g. from submissions detail link) */
+  submission_batch_id: string
 }
 
 const SOURCE_OPTIONS = [
@@ -148,7 +154,31 @@ export default function SignageOrdersDashboard() {
     business_name: '',
     stashpoint_id: '',
     source: [],
+    submission_batch_id: '',
   })
+
+  const [fastTrackEmail, setFastTrackEmail] = useState('')
+  const [fastTrackBusy, setFastTrackBusy] = useState(false)
+  const [fastTrackMessage, setFastTrackMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('signage-fast-track-email')
+      if (saved) setFastTrackEmail(saved)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const sp = new URLSearchParams(window.location.search)
+    const batch = sp.get('batch') || sp.get('submission_batch_id')
+    if (batch) {
+      setFilters((f) => ({ ...f, submission_batch_id: batch }))
+      setPage(1)
+    }
+  }, [])
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -160,6 +190,9 @@ export default function SignageOrdersDashboard() {
       if (filters.city) params.set('city', filters.city)
       if (filters.business_name) params.set('business_name', filters.business_name)
       if (filters.stashpoint_id) params.set('stashpoint_id', filters.stashpoint_id)
+      if (filters.submission_batch_id.trim()) {
+        params.set('submission_batch_id', filters.submission_batch_id.trim())
+      }
       if (filters.source.length) params.set('source', filters.source.join(','))
       params.set('page', String(page))
       params.set('limit', String(limit))
@@ -225,7 +258,47 @@ export default function SignageOrdersDashboard() {
       business_name: '',
       stashpoint_id: '',
       source: [],
+      submission_batch_id: '',
     })
+  }
+
+  const persistFastTrackEmail = (email: string) => {
+    setFastTrackEmail(email)
+    try {
+      if (email.trim()) localStorage.setItem('signage-fast-track-email', email.trim())
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const fastTrackOrders = async (orderIds: number[]) => {
+    setFastTrackMessage(null)
+    const to = fastTrackEmail.trim()
+    if (!to) {
+      window.alert('Enter the email address where we should send asset links.')
+      return
+    }
+    if (orderIds.length === 0) return
+    setFastTrackBusy(true)
+    try {
+      const res = await fetch('/api/dashboard/signage/orders/fast-track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds, to }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        window.alert(typeof data.error === 'string' ? data.error : 'Fast-track failed')
+        return
+      }
+      setFastTrackMessage(`Emailed ${to} with links for ${orderIds.length} order(s).`)
+      fetchOrders()
+      for (const id of orderIds) {
+        if (selected?.id === id) void openOrder(id)
+      }
+    } finally {
+      setFastTrackBusy(false)
+    }
   }
 
   const openOrder = async (id: number) => {
@@ -328,6 +401,32 @@ export default function SignageOrdersDashboard() {
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{loadError}</div>
         )}
 
+        {filters.submission_batch_id.trim() && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            <span>
+              Showing signage orders for submission batch{' '}
+              <code className="rounded bg-white px-1.5 py-0.5 text-xs">{filters.submission_batch_id}</code>
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setFilters((f) => ({ ...f, submission_batch_id: '' }))
+                setPage(1)
+              }}
+            >
+              Clear batch filter
+            </Button>
+          </div>
+        )}
+
+        {fastTrackMessage && (
+          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
+            {fastTrackMessage}
+          </div>
+        )}
+
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -418,7 +517,7 @@ export default function SignageOrdersDashboard() {
               </div>
             )}
 
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <label className="inline-flex items-center gap-2 text-xs text-slate-600">
                 <input
                   type="checkbox"
@@ -428,16 +527,44 @@ export default function SignageOrdersDashboard() {
                 />
                 Select all visible ({orders.length})
               </label>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-red-600"
-                disabled={selectedIds.size === 0}
-                onClick={bulkDeleteOrders}
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                Delete selected ({selectedIds.size})
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="space-y-1 sm:min-w-[220px]">
+                  <Label htmlFor="signage-fast-track-email" className="text-xs text-slate-600">
+                    Email for asset links
+                  </Label>
+                  <Input
+                    id="signage-fast-track-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@company.com"
+                    className="h-9 text-sm"
+                    value={fastTrackEmail}
+                    onChange={(e) => persistFastTrackEmail(e.target.value)}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="shrink-0"
+                    disabled={selectedIds.size === 0 || fastTrackBusy}
+                    onClick={() => void fastTrackOrders([...selectedIds])}
+                  >
+                    <Mail className="mr-1.5 h-3.5 w-3.5" />
+                    {fastTrackBusy ? 'Working…' : `Generate & email (${selectedIds.size})`}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600"
+                    disabled={selectedIds.size === 0}
+                    onClick={bulkDeleteOrders}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    Delete ({selectedIds.size})
+                  </Button>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -561,9 +688,47 @@ export default function SignageOrdersDashboard() {
                       {Object.keys(it.selected_options || {}).length > 0 && (
                         <p className="text-xs text-slate-600">{JSON.stringify(it.selected_options)}</p>
                       )}
+                      {it.generated_asset_link && (
+                        <a
+                          href={it.generated_asset_link}
+                          className="text-xs text-blue-600 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open generated asset
+                        </a>
+                      )}
+                      {it.asset_error && (
+                        <p className="text-xs text-red-600">Error: {it.asset_error}</p>
+                      )}
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-end">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="signage-fast-track-email-modal" className="text-xs text-slate-600">
+                    Email for asset links
+                  </Label>
+                  <Input
+                    id="signage-fast-track-email-modal"
+                    type="email"
+                    placeholder="you@company.com"
+                    className="h-9 text-sm"
+                    value={fastTrackEmail}
+                    onChange={(e) => persistFastTrackEmail(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={fastTrackBusy}
+                  onClick={() => void fastTrackOrders([selected.id])}
+                >
+                  <Mail className="mr-1.5 h-3.5 w-3.5" />
+                  {fastTrackBusy ? 'Working…' : 'Generate & email this order'}
+                </Button>
               </div>
 
               <div className="flex flex-wrap gap-2">

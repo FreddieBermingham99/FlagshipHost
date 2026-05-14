@@ -1,17 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['@napi-rs/canvas'],
+    serverComponentsExternalPackages: ['@napi-rs/canvas', '@napi-rs/canvas/node-canvas'],
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
       const prev = config.externals
+      const canvasExternals = ['@napi-rs/canvas', '@napi-rs/canvas/node-canvas']
       if (Array.isArray(prev)) {
-        config.externals = [...prev, '@napi-rs/canvas']
+        config.externals = [...prev, ...canvasExternals]
       } else if (prev == null) {
-        config.externals = ['@napi-rs/canvas']
+        config.externals = canvasExternals
       } else {
-        config.externals = [prev, '@napi-rs/canvas']
+        config.externals = [prev, ...canvasExternals]
       }
     }
     return config
