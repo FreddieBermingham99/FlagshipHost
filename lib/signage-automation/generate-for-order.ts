@@ -9,6 +9,7 @@ import {
   updateSignageOrderAssetStatus,
   updateSignageOrderItemAsset,
 } from '@/lib/submissions-db'
+import { matchOrderOptionsToSelection } from '@/lib/signage-automation/match-catalog-options'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
 import { getAutomationConfig } from '@/lib/signage-automation/config'
 import { buildQrUrl } from '@/lib/signage-automation/qr-url'
@@ -28,21 +29,6 @@ function resolveGenerationTemplateUrl(
   const itemTpl = catalogItem.template_image_url?.trim()
   if (itemTpl) return itemTpl
   return catalogItem.image_url?.trim() || null
-}
-
-function matchOrderOptions(
-  catalogItem: SignageCatalogItemWithOptions,
-  selected: Record<string, string | string[]>
-): SignageCatalogOption[] {
-  const matched: SignageCatalogOption[] = []
-  for (const opt of catalogItem.options) {
-    const raw = selected[opt.option_group_label]
-    const val = Array.isArray(raw) ? raw[0] : raw
-    if (val != null && String(val) === String(opt.option_value)) {
-      matched.push(opt)
-    }
-  }
-  return matched.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
 }
 
 /** Prefer a design option's template when several options define one. */
@@ -102,14 +88,16 @@ export async function generateSignageAssetsForOrder(
   const uploadFolderId = String(options?.uploadFolderId ?? '').trim() || rootFolder
   if (!uploadFolderId) return { ok: false, error: 'Google Drive folder is not configured' }
   const catalog = await listSignageCatalogItems(false)
-  const byId = new Map(catalog.map((c) => [c.id, c]))
+  const byId = new Map<number, SignageCatalogItemWithOptions>(catalog.map((c) => [c.id, c]))
   let hadErrors = false
   const errorDetails: string[] = []
 
   await updateSignageOrderAssetStatus(order.id, 'in_progress')
   for (const item of order.items) {
     const catalogItem = item.catalog_item_id ? byId.get(item.catalog_item_id) : undefined
-    const matchedOpts = catalogItem ? matchOrderOptions(catalogItem, item.selected_options) : []
+    const matchedOpts = catalogItem
+      ? matchOrderOptionsToSelection(catalogItem, item.selected_options)
+      : []
     const templateSourceOpt = pickOptionTemplateSource(matchedOpts)
     const templateUrl = catalogItem ? resolveGenerationTemplateUrl(catalogItem, templateSourceOpt) : null
     const selectedSizeValue = resolveSelectedSizeValue(item.selected_options, matchedOpts)
@@ -123,7 +111,9 @@ export async function generateSignageAssetsForOrder(
       continue
     }
 
-    const requiresCustomisation = catalogItem?.requires_customisation !== false
+    const optionTemplateOnly = matchedOpts.some((o) => o.template_only === true)
+    const requiresCustomisation =
+      (catalogItem?.requires_customisation !== false) && !optionTemplateOnly
     const overlay = catalogItem
       ? mergeOverlayConfigs(catalogItem.overlay_config || {}, matchedOpts)
       : ({} as SignageOverlayConfig)

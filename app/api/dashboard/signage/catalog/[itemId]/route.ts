@@ -60,6 +60,7 @@ export async function PATCH(
         price_hint: typeof body.price_hint === 'string' ? body.price_hint : undefined,
         is_visible: typeof body.is_visible === 'boolean' ? body.is_visible : undefined,
         sort_order: typeof body.sort_order === 'number' ? body.sort_order : undefined,
+        template_only: typeof body.template_only === 'boolean' ? body.template_only : undefined,
       })
       if (!updated) return NextResponse.json({ error: 'Option not found' }, { status: 404 })
       return NextResponse.json({ option: updated })
@@ -144,6 +145,7 @@ export async function POST(
       price_hint: typeof body.price_hint === 'string' ? body.price_hint : null,
       is_visible: typeof body.is_visible === 'boolean' ? body.is_visible : true,
       sort_order: typeof body.sort_order === 'number' ? body.sort_order : 0,
+      template_only: typeof body.template_only === 'boolean' ? body.template_only : false,
     })
     return NextResponse.json({ option })
   } catch (e) {

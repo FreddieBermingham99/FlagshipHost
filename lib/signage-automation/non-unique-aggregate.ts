@@ -1,7 +1,8 @@
 import 'server-only'
 
 import { variantSubtitleLabel } from '@/lib/signage-automation/item-snapshot-label'
-import type { SignageCatalogItem } from '@/lib/submissions-db'
+import { matchOrderOptionsToSelection } from '@/lib/signage-automation/match-catalog-options'
+import type { SignageCatalogItem, SignageCatalogItemWithOptions } from '@/lib/submissions-db'
 
 export type ItemLineForNonUniqueAgg = {
   catalog_item_id: number | null
@@ -27,6 +28,16 @@ export function isNonUniqueSignageCatalogItem(c: SignageCatalogItem | undefined)
   return c != null && c.requires_customisation === false
 }
 
+/** Whole catalog item is template-only, or the selected option row(s) include a per-option template_only flag. */
+function lineQualifiesForNonUniqueRollup(
+  cat: SignageCatalogItemWithOptions | undefined,
+  selected: Record<string, string | string[]>
+): boolean {
+  if (!cat) return false
+  if (cat.requires_customisation === false) return true
+  return matchOrderOptionsToSelection(cat, selected).some((o) => o.template_only === true)
+}
+
 type VariantAgg = { quantity: number; label: string }
 
 /**
@@ -35,7 +46,7 @@ type VariantAgg = { quantity: number; label: string }
  */
 export function aggregateNonUniqueSignageGrouped(
   orders: Array<{ items: ItemLineForNonUniqueAgg[] }>,
-  catalogById: Map<number, SignageCatalogItem>
+  catalogById: Map<number, SignageCatalogItemWithOptions>
 ): Array<{
   catalogItemId: number
   catalogName: string
@@ -50,7 +61,7 @@ export function aggregateNonUniqueSignageGrouped(
       const cid = it.catalog_item_id
       if (cid == null) continue
       const cat = catalogById.get(cid)
-      if (!isNonUniqueSignageCatalogItem(cat)) continue
+      if (!lineQualifiesForNonUniqueRollup(cat, it.selected_options ?? {})) continue
       const optKey = selectedOptionsKey(it.selected_options ?? {})
       const label = (it.item_name_snapshot || cat?.name || 'Signage').trim()
       const add = Math.max(1, Math.floor(Number(it.quantity)) || 1)
@@ -103,7 +114,7 @@ export function aggregateNonUniqueSignageGrouped(
 /** Flat list (legacy / simple); prefer {@link aggregateNonUniqueSignageGrouped} for emails. */
 export function aggregateNonUniqueSignageQuantities(
   orders: Array<{ items: ItemLineForNonUniqueAgg[] }>,
-  catalogById: Map<number, SignageCatalogItem>
+  catalogById: Map<number, SignageCatalogItemWithOptions>
 ): Array<{ label: string; quantity: number }> {
   type Agg = { quantity: number; label: string }
   const map = new Map<string, Agg>()
@@ -113,7 +124,7 @@ export function aggregateNonUniqueSignageQuantities(
       const cid = it.catalog_item_id
       if (cid == null) continue
       const cat = catalogById.get(cid)
-      if (!isNonUniqueSignageCatalogItem(cat)) continue
+      if (!lineQualifiesForNonUniqueRollup(cat, it.selected_options ?? {})) continue
       const key = `${cid}::${selectedOptionsKey(it.selected_options ?? {})}`
       const label = (it.item_name_snapshot || cat?.name || 'Signage').trim()
       const prev = map.get(key)
@@ -191,7 +202,7 @@ export function formatNonUniqueGroupedHtml(
 /** Customised catalog types with a supplier URL present on at least one order line (deduped). */
 export function aggregateCustomisedSupplierLinks(
   orders: Array<{ items: ItemLineForNonUniqueAgg[] }>,
-  catalogById: Map<number, SignageCatalogItem>
+  catalogById: Map<number, SignageCatalogItemWithOptions>
 ): Array<{ name: string; url: string }> {
   const byId = new Map<number, { name: string; url: string }>()
   for (const order of orders) {
@@ -202,7 +213,7 @@ export function aggregateCustomisedSupplierLinks(
       if (!cat) continue
       const url = cat.supplier_url?.trim()
       if (!url) continue
-      if (isNonUniqueSignageCatalogItem(cat)) continue
+      if (lineQualifiesForNonUniqueRollup(cat, it.selected_options ?? {})) continue
       byId.set(cid, { name: cat.name.trim() || 'Signage', url })
     }
   }

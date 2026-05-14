@@ -147,6 +147,7 @@ ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS option_type TE
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS design_image_url TEXT;
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS overlay_config JSONB;
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS template_image_url TEXT;
+ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS template_only BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS signage_orders (
   id SERIAL PRIMARY KEY,
@@ -672,6 +673,8 @@ export type SignageCatalogOption = {
   price_hint: string | null
   is_visible: boolean
   sort_order: number
+  /** When true, orders selecting this option get the template file only (no QR / business overlay). */
+  template_only: boolean
   created_at: string
   updated_at: string
 }
@@ -730,6 +733,7 @@ export type SignageCatalogOptionInsert = {
   price_hint?: string | null
   is_visible?: boolean
   sort_order?: number
+  template_only?: boolean
 }
 
 export type SignageCatalogOptionUpdate = Partial<Omit<SignageCatalogOptionInsert, 'item_id'>>
@@ -931,8 +935,8 @@ export async function createSignageCatalogOption(
   return withClient(async (c) => {
     const res = await c.query<SignageCatalogOption>(
       `INSERT INTO signage_catalog_item_options
-       (item_id, option_type, option_group_label, option_name, option_value, design_image_url, template_image_url, overlay_config, price_hint, is_visible, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+       (item_id, option_type, option_group_label, option_name, option_value, design_image_url, template_image_url, overlay_config, price_hint, is_visible, sort_order, template_only)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, COALESCE($12, FALSE))
        RETURNING *`,
       [
         data.item_id,
@@ -946,6 +950,7 @@ export async function createSignageCatalogOption(
         data.price_hint ?? null,
         data.is_visible ?? true,
         data.sort_order ?? 0,
+        data.template_only ?? false,
       ]
     )
     return res.rows[0]
@@ -971,8 +976,9 @@ export async function updateSignageCatalogOption(
          price_hint = COALESCE($8, price_hint),
          is_visible = COALESCE($9, is_visible),
          sort_order = COALESCE($10, sort_order),
+         template_only = COALESCE($11, template_only),
          updated_at = now()
-       WHERE id = $11
+       WHERE id = $12
        RETURNING *`,
       [
         data.option_group_label ?? null,
@@ -985,6 +991,7 @@ export async function updateSignageCatalogOption(
         data.price_hint ?? null,
         data.is_visible ?? null,
         data.sort_order ?? null,
+        data.template_only ?? null,
         id,
       ]
     )

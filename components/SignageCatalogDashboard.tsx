@@ -27,6 +27,7 @@ type CatalogOption = {
   design_image_url?: string | null
   template_image_url?: string | null
   overlay_config?: Record<string, unknown> | null
+  template_only?: boolean
   is_visible: boolean
 }
 
@@ -62,6 +63,10 @@ type DesignLanguageVariationDraft = {
   languageCode: string
   templateDataUrl: string
   overlay: SignageOverlayConfig
+  /** When true, this language option is fulfilled as raw template only (no QR / business). */
+  templateOnly: boolean
+  /** Set when editing an existing catalog option row */
+  existingOptionId?: number
 }
 
 function slugifyDesignName(input: string): string {
@@ -105,13 +110,26 @@ function cloneOverlayConfig(input?: SignageOverlayConfig): SignageOverlayConfig 
   }
 }
 
-function createLanguageVariationDraft(id: string, overlay?: SignageOverlayConfig): DesignLanguageVariationDraft {
+function createLanguageVariationDraft(
+  id: string,
+  overlay?: SignageOverlayConfig,
+  partial?: Partial<Pick<DesignLanguageVariationDraft, 'languageCode' | 'templateDataUrl' | 'templateOnly' | 'existingOptionId'>>
+): DesignLanguageVariationDraft {
   return {
     id,
-    languageCode: '',
-    templateDataUrl: '',
+    languageCode: partial?.languageCode ?? '',
+    templateDataUrl: partial?.templateDataUrl ?? '',
     overlay: cloneOverlayConfig(overlay),
+    templateOnly: partial?.templateOnly ?? false,
+    existingOptionId: partial?.existingOptionId,
   }
+}
+
+function designKeyFromCatalogOption(opt: CatalogOption): string {
+  if (opt.option_type === 'design' && String(opt.option_value || '').trim()) {
+    return String(opt.option_value).trim()
+  }
+  return slugifyDesignName(opt.option_name || '') || `design-${opt.id}`
 }
 
 async function readFileAsDataUrl(file: File): Promise<string> {
@@ -131,11 +149,10 @@ export default function SignageCatalogDashboard() {
   const [imageUrl, setImageUrl] = useState('')
   const [templateImageUrl, setTemplateImageUrl] = useState('')
   const [newSupplierUrl, setNewSupplierUrl] = useState('')
+  const [optionTemplateOnly, setOptionTemplateOnly] = useState(false)
   const [newItemNoCustomisation, setNewItemNoCustomisation] = useState(false)
   const [maxQuantity, setMaxQuantity] = useState(1)
   const [optionItemId, setOptionItemId] = useState<number | null>(null)
-  const [optionType, setOptionType] = useState<'size' | 'design' | 'language'>('size')
-  const [sizeValue, setSizeValue] = useState('')
   const [designName, setDesignName] = useState('')
   const [designImageDataUrl, setDesignImageDataUrl] = useState('')
   const [designHasLanguageVariants, setDesignHasLanguageVariants] = useState(false)
@@ -154,7 +171,12 @@ export default function SignageCatalogDashboard() {
   const [editItemRequiresQr, setEditItemRequiresQr] = useState(true)
   const [editNoCustomisation, setEditNoCustomisation] = useState(false)
   const [editOverlay, setEditOverlay] = useState<SignageOverlayConfig>({})
-  const [editingOption, setEditingOption] = useState<{ itemId: number; option: CatalogOption } | null>(null)
+  const [editingDesignBundle, setEditingDesignBundle] = useState(false)
+  const [designBundleRootOptionId, setDesignBundleRootOptionId] = useState<number | null>(null)
+  const [designBundleIdsAtOpen, setDesignBundleIdsAtOpen] = useState<number[]>([])
+  const [designBundleSizesSnapshot, setDesignBundleSizesSnapshot] = useState<
+    Array<{ id: number; option_name: string; option_value: string }>
+  >([])
   const optionParentItem = useMemo(
     () => items.find((x) => x.id === optionItemId) ?? null,
     [items, optionItemId]
@@ -218,15 +240,18 @@ export default function SignageCatalogDashboard() {
   }
 
   const openAddOptionModal = (itemId: number) => {
+    setEditingDesignBundle(false)
+    setDesignBundleRootOptionId(null)
+    setDesignBundleIdsAtOpen([])
+    setDesignBundleSizesSnapshot([])
     setOptionItemId(itemId)
-    setOptionType('design')
-    setSizeValue('')
     setDesignName('')
     setDesignImageDataUrl('')
     setDesignHasLanguageVariants(false)
     setDesignSizeOptionsCsv('')
     setDesignAllowCustomDimensionsCm(false)
     setOptionTemplateDataUrl('')
+    setOptionTemplateOnly(false)
     const parent = items.find((x) => x.id === itemId)
     const inheritedOverlay = overlayConfigFromCatalog(parent?.overlay_config)
     setOptionOverlay(inheritedOverlay)
@@ -240,6 +265,11 @@ export default function SignageCatalogDashboard() {
     setDesignLanguageVariations([])
     setDesignSizeOptionsCsv('')
     setDesignAllowCustomDimensionsCm(false)
+    setOptionTemplateOnly(false)
+    setEditingDesignBundle(false)
+    setDesignBundleRootOptionId(null)
+    setDesignBundleIdsAtOpen([])
+    setDesignBundleSizesSnapshot([])
   }
 
   const openEditItemModal = (item: CatalogItem) => {
@@ -280,36 +310,68 @@ export default function SignageCatalogDashboard() {
     fetchItems()
   }
 
-  const openEditOptionModal = (itemId: number, option: CatalogOption) => {
-    setOptionItemId(itemId)
-    setEditingOption({ itemId, option })
-    const type =
-      option.option_type === 'design' || option.option_type === 'language'
-        ? option.option_type
-        : 'size'
-    setOptionType(type)
-    setOptionTemplateDataUrl(option.template_image_url?.trim() ? option.template_image_url : '')
-    const parent = items.find((x) => x.id === itemId)
-    setOptionOverlay(
-      option.overlay_config && typeof option.overlay_config === 'object'
-        ? overlayConfigFromCatalog(option.overlay_config)
-        : overlayConfigFromCatalog(parent?.overlay_config)
-    )
-    if (type === 'size' || type === 'language') {
-      setSizeValue(type === 'language' ? (option.option_value || option.option_name || '') : (option.option_name || ''))
-      setDesignName('')
-      setDesignImageDataUrl('')
-    } else {
-      setSizeValue('')
-      setDesignName(option.option_name || '')
-      setDesignImageDataUrl(option.design_image_url || '')
-    }
-  }
+  const openEditDesignBundleModal = (itemId: number, designOption: CatalogOption) => {
+    const item = items.find((x) => x.id === itemId)
+    if (!item) return
 
-  const closeEditOptionModal = () => {
-    setEditingOption(null)
-    setOptionItemId(null)
-    setOptionOverlay({})
+    setEditingDesignBundle(true)
+    setDesignBundleRootOptionId(designOption.id)
+
+    const designKey = designKeyFromCatalogOption(designOption)
+
+    const langs = item.options.filter(
+      (o) => o.option_type === 'language' && o.option_group_label === `Language::${designKey}`
+    )
+    const sizeRows = item.options.filter(
+      (o) => o.option_type === 'size' && o.option_group_label === `Size::${designKey}`
+    )
+
+    setDesignBundleIdsAtOpen([designOption.id, ...langs.map((l) => l.id), ...sizeRows.map((s) => s.id)])
+    setDesignBundleSizesSnapshot(
+      sizeRows.map((s) => ({ id: s.id, option_name: s.option_name, option_value: s.option_value }))
+    )
+
+    setOptionItemId(itemId)
+    setDesignName(designOption.option_name || '')
+    setDesignImageDataUrl(designOption.design_image_url?.trim() ? designOption.design_image_url : '')
+
+    const inheritedOverlay = overlayConfigFromCatalog(item.overlay_config)
+
+    if (langs.length > 0) {
+      setDesignHasLanguageVariants(true)
+      setOptionTemplateOnly(false)
+      setOptionTemplateDataUrl('')
+      setDesignLanguageVariations(
+        langs.map((o, i) =>
+          createLanguageVariationDraft(`${o.id}-${i}`, overlayConfigFromCatalog(o.overlay_config), {
+            languageCode: String(o.option_value || '').trim(),
+            templateDataUrl: o.template_image_url?.trim() ? o.template_image_url : '',
+            templateOnly: o.template_only === true,
+            existingOptionId: o.id,
+          })
+        )
+      )
+      setOptionOverlay(inheritedOverlay)
+    } else {
+      setDesignHasLanguageVariants(false)
+      setDesignLanguageVariations([createLanguageVariationDraft(`${Date.now()}-0`, inheritedOverlay)])
+      setOptionTemplateDataUrl(designOption.template_image_url?.trim() ? designOption.template_image_url : '')
+      setOptionTemplateOnly(designOption.template_only === true)
+      setOptionOverlay(
+        designOption.overlay_config && typeof designOption.overlay_config === 'object'
+          ? overlayConfigFromCatalog(designOption.overlay_config)
+          : inheritedOverlay
+      )
+    }
+
+    const custom = sizeRows.some(
+      (s) => s.option_value === 'custom-cm' || s.option_name === 'Custom dimensions (cm)'
+    )
+    setDesignAllowCustomDimensionsCm(custom)
+    const sizeNames = sizeRows.filter(
+      (s) => !(s.option_value === 'custom-cm' || s.option_name === 'Custom dimensions (cm)')
+    )
+    setDesignSizeOptionsCsv(sizeNames.map((s) => s.option_name).join(', '))
   }
 
   const updateDesignLanguageVariation = (
@@ -347,8 +409,175 @@ export default function SignageCatalogDashboard() {
     }
   }
 
+  const saveDesignBundle = async () => {
+    if (!optionItemId || designBundleRootOptionId === null) return
+
+    const optionName = designName.trim()
+    if (!optionName) {
+      window.alert('Please enter a design name.')
+      return
+    }
+
+    const targetItemId = optionItemId
+    const newKey = slugifyDesignName(optionName) || `design-${designBundleRootOptionId}`
+    const designSizes = parseCommaSeparatedValues(designSizeOptionsCsv)
+    const standardTemplate = optionTemplateDataUrl.trim()
+    const validVariations = designLanguageVariations.filter(
+      (v) => v.languageCode.trim() && v.templateDataUrl.trim()
+    )
+    const derivedDesignPreview = designHasLanguageVariants
+      ? validVariations[0]?.templateDataUrl?.trim() || null
+      : standardTemplate || null
+
+    if (!designHasLanguageVariants && !standardTemplate) {
+      window.alert('Upload a standard design template, or switch to language-specific variations.')
+      return
+    }
+    if (designHasLanguageVariants && validVariations.length === 0) {
+      window.alert('Add at least one language template.')
+      return
+    }
+
+    const idsStillUsed = new Set<number>([designBundleRootOptionId])
+
+    const patchJson = (body: Record<string, unknown>) =>
+      fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+    const postJson = (body: Record<string, unknown>) =>
+      fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+    const fail = async (res: Response) => {
+      const data = await res.json().catch(() => ({}))
+      window.alert(typeof data.error === 'string' ? data.error : 'Failed to save design')
+    }
+
+    let res = await patchJson({
+      target: 'option',
+      optionId: designBundleRootOptionId,
+      option_type: 'design',
+      option_group_label: 'Design',
+      option_name: optionName,
+      option_value: newKey,
+      design_image_url: derivedDesignPreview,
+      template_image_url: designHasLanguageVariants ? null : standardTemplate,
+      overlay_config: overlayRectsOnlyForSave(optionOverlay) as Record<string, unknown>,
+      template_only: !designHasLanguageVariants && optionTemplateOnly,
+    })
+    if (!res.ok) {
+      await fail(res)
+      return
+    }
+
+    if (designHasLanguageVariants) {
+      for (const v of validVariations) {
+        const lang = LANGUAGE_CHOICES.find((x) => x.code === (v.languageCode as SupportedLandingLocale))
+        const label = `Language::${newKey}`
+        const base = {
+          option_type: 'language' as const,
+          option_group_label: label,
+          option_name: lang?.label || v.languageCode,
+          option_value: v.languageCode,
+          design_image_url: null,
+          template_image_url: v.templateDataUrl.trim(),
+          overlay_config: overlayRectsOnlyForSave(v.overlay) as Record<string, unknown>,
+          template_only: v.templateOnly === true,
+        }
+        if (v.existingOptionId != null) {
+          res = await patchJson({ target: 'option', optionId: v.existingOptionId, ...base })
+          if (!res.ok) {
+            await fail(res)
+            return
+          }
+          idsStillUsed.add(v.existingOptionId)
+        } else {
+          res = await postJson({ ...base, is_visible: true })
+          if (!res.ok) {
+            await fail(res)
+            return
+          }
+          const data = (await res.json().catch(() => ({}))) as { option?: { id?: number } }
+          if (typeof data.option?.id === 'number') idsStillUsed.add(data.option.id)
+        }
+      }
+    }
+
+    let unmatchedSizes = [...designBundleSizesSnapshot]
+    const sizeLabelBase = `Size::${newKey}`
+
+    const upsertSize = async (name: string, value: string) => {
+      const matchIdx = unmatchedSizes.findIndex((s) => s.option_name === name && s.option_value === value)
+      if (matchIdx >= 0) {
+        const sid = unmatchedSizes[matchIdx]!.id
+        unmatchedSizes = unmatchedSizes.filter((_, i) => i !== matchIdx)
+        res = await patchJson({
+          target: 'option',
+          optionId: sid,
+          option_type: 'size',
+          option_group_label: sizeLabelBase,
+          option_name: name,
+          option_value: value,
+          design_image_url: null,
+          template_image_url: null,
+        })
+        if (!res.ok) {
+          await fail(res)
+          return false
+        }
+        idsStillUsed.add(sid)
+        return true
+      }
+      res = await postJson({
+        option_type: 'size',
+        option_group_label: sizeLabelBase,
+        option_name: name,
+        option_value: value,
+        design_image_url: null,
+        template_image_url: null,
+        overlay_config: null,
+        is_visible: true,
+      })
+      if (!res.ok) {
+        await fail(res)
+        return false
+      }
+      const data = (await res.json().catch(() => ({}))) as { option?: { id?: number } }
+      if (typeof data.option?.id === 'number') idsStillUsed.add(data.option.id)
+      return true
+    }
+
+    for (const sizeName of designSizes) {
+      const ok = await upsertSize(sizeName, sizeName)
+      if (!ok) return
+    }
+    if (designAllowCustomDimensionsCm) {
+      const ok = await upsertSize('Custom dimensions (cm)', 'custom-cm')
+      if (!ok) return
+    }
+
+    for (const id of designBundleIdsAtOpen) {
+      if (id === designBundleRootOptionId) continue
+      if (idsStillUsed.has(id)) continue
+      await fetch(`/api/dashboard/signage/catalog/${targetItemId}?optionId=${id}`, { method: 'DELETE' })
+    }
+
+    closeAddOptionModal()
+    fetchItems()
+  }
+
   const addOption = async () => {
     if (!optionItemId) return
+    if (editingDesignBundle && designBundleRootOptionId !== null) {
+      await saveDesignBundle()
+      return
+    }
     const optionName = designName.trim()
     if (!optionName) {
       window.alert('Please enter a design name.')
@@ -370,6 +599,10 @@ export default function SignageCatalogDashboard() {
       window.alert('Upload a standard design template, or switch to language-specific variations.')
       return
     }
+    if (designHasLanguageVariants && validVariations.length === 0) {
+      window.alert('Add at least one language template.')
+      return
+    }
     payloads.push({
       option_type: 'design',
       option_group_label: 'Design',
@@ -379,6 +612,7 @@ export default function SignageCatalogDashboard() {
       template_image_url: designHasLanguageVariants ? null : standardTemplate,
       overlay_config: overlayRectsOnlyForSave(optionOverlay) as Record<string, unknown>,
       is_visible: true,
+      template_only: !designHasLanguageVariants && optionTemplateOnly,
     })
     for (const sizeName of designSizes) {
       payloads.push({
@@ -405,10 +639,6 @@ export default function SignageCatalogDashboard() {
       })
     }
     if (designHasLanguageVariants) {
-      if (validVariations.length === 0) {
-        window.alert('Add at least one language template.')
-        return
-      }
       for (const v of validVariations) {
         const lang = LANGUAGE_CHOICES.find((x) => x.code === (v.languageCode as SupportedLandingLocale))
         payloads.push({
@@ -420,6 +650,7 @@ export default function SignageCatalogDashboard() {
           template_image_url: v.templateDataUrl.trim(),
           overlay_config: overlayRectsOnlyForSave(v.overlay) as Record<string, unknown>,
           is_visible: true,
+          template_only: v.templateOnly === true,
         })
       }
     }
@@ -441,50 +672,20 @@ export default function SignageCatalogDashboard() {
     })()
   }
 
-  const saveOptionEdit = async () => {
-    if (!editingOption) return
-    const isSize = optionType === 'size'
-    const isLanguage = optionType === 'language'
-    const optionName = isSize || isLanguage ? sizeValue.trim() : designName.trim()
-    if (!optionName) {
-      window.alert(isSize ? 'Please enter a size.' : isLanguage ? 'Please enter a language.' : 'Please enter a design name.')
-      return
+  const deleteDesignBundle = async (itemId: number, designOption: CatalogOption) => {
+    if (!window.confirm('Delete this design and all its language and size options?')) return
+    const item = items.find((x) => x.id === itemId)
+    if (!item) return
+    const key = designKeyFromCatalogOption(designOption)
+    const toRemove = item.options.filter(
+      (o) =>
+        o.id === designOption.id ||
+        (o.option_type === 'language' && o.option_group_label === `Language::${key}`) ||
+        (o.option_type === 'size' && o.option_group_label === `Size::${key}`)
+    )
+    for (const o of toRemove) {
+      await fetch(`/api/dashboard/signage/catalog/${itemId}?optionId=${o.id}`, { method: 'DELETE' })
     }
-    const targetItemId = editingOption.itemId
-    const payload = {
-      target: 'option',
-      optionId: editingOption.option.id,
-      option_type: optionType,
-      option_group_label: isSize ? 'Size' : isLanguage ? 'Language' : 'Design',
-      option_name:
-        isLanguage
-          ? (LANGUAGE_CHOICES.find((x) => x.code === (optionName as SupportedLandingLocale))?.label || optionName)
-          : optionName,
-      option_value: optionName,
-      design_image_url: isSize || isLanguage ? null : designImageDataUrl || null,
-      template_image_url: optionTemplateDataUrl.trim(),
-      overlay_config: overlayRectsOnlyForSave(optionOverlay) as Record<string, unknown>,
-    }
-    closeEditOptionModal()
-    void (async () => {
-      const res = await fetch(`/api/dashboard/signage/catalog/${targetItemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        window.alert(typeof data.error === 'string' ? data.error : 'Failed to save option')
-      }
-      fetchItems()
-    })()
-  }
-
-  const deleteOption = async (itemId: number, optionId: number) => {
-    if (!window.confirm('Delete this option?')) return
-    await fetch(`/api/dashboard/signage/catalog/${itemId}?optionId=${optionId}`, {
-      method: 'DELETE',
-    })
     fetchItems()
   }
 
@@ -521,6 +722,18 @@ export default function SignageCatalogDashboard() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
               <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
+            </div>
+            <div className="space-y-1 border-t border-slate-100 pt-3">
+              <Label className="text-xs font-medium text-slate-700">Supplier URL (optional)</Label>
+              <p className="text-[11px] text-slate-500">
+                Shown in order summary emails when this type is on an order (e.g. print shop link).
+              </p>
+              <Input
+                value={newSupplierUrl}
+                onChange={(e) => setNewSupplierUrl(e.target.value)}
+                placeholder="https://…"
+                className="text-xs"
+              />
             </div>
             <div className="grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -565,18 +778,6 @@ export default function SignageCatalogDashboard() {
                   value={templateImageUrl}
                   onChange={(e) => setTemplateImageUrl(e.target.value)}
                   placeholder="Or template URL"
-                  className="text-xs"
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs font-medium text-slate-700">Supplier URL (optional)</Label>
-                <p className="text-[11px] text-slate-500">
-                  Shown in order summary emails when this type is on an order (e.g. print shop link).
-                </p>
-                <Input
-                  value={newSupplierUrl}
-                  onChange={(e) => setNewSupplierUrl(e.target.value)}
-                  placeholder="https://…"
                   className="text-xs"
                 />
               </div>
@@ -681,9 +882,19 @@ export default function SignageCatalogDashboard() {
                       <div className="space-y-2">
                         {item.options
                           .filter((opt) => opt.option_type === 'design' || opt.option_group_label === 'Design')
-                          .map((opt) => (
+                          .map((opt) => {
+                            const dk = designKeyFromCatalogOption(opt)
+                            const nLang = item.options.filter(
+                              (o) =>
+                                o.option_type === 'language' && o.option_group_label === `Language::${dk}`
+                            ).length
+                            const nSize = item.options.filter(
+                              (o) => o.option_type === 'size' && o.option_group_label === `Size::${dk}`
+                            ).length
+                            return (
                           <div key={opt.id} className="flex items-center justify-between rounded border bg-slate-50 px-2 py-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-2">
                               <span className="text-xs">
                                 {opt.option_group_label}: {opt.option_name}
                               </span>
@@ -696,13 +907,17 @@ export default function SignageCatalogDashboard() {
                                   className="h-8 w-8 rounded border object-cover"
                                 />
                               )}
+                              </div>
+                              <span className="text-[10px] text-slate-400">
+                                {nLang} language{nLang === 1 ? '' : 's'} · {nSize} size{nSize === 1 ? '' : 's'}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="h-7 px-2 text-xs"
-                                onClick={() => openEditOptionModal(item.id, opt)}
+                                onClick={() => openEditDesignBundleModal(item.id, opt)}
                               >
                                 Edit
                               </Button>
@@ -710,13 +925,14 @@ export default function SignageCatalogDashboard() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 px-2 text-xs text-red-600"
-                                onClick={() => deleteOption(item.id, opt.id)}
+                                onClick={() => deleteDesignBundle(item.id, opt)}
                               >
                                 Delete
                               </Button>
                             </div>
                           </div>
-                        ))}
+                            )
+                          })}
                       </div>
                     )}
                   </div>
@@ -736,9 +952,9 @@ export default function SignageCatalogDashboard() {
             <CardHeader>
               <CardTitle className="text-base">Edit signage type</CardTitle>
               <p className="text-xs text-slate-500">
-                <strong>Display image</strong> appears in the ordering picker. <strong>Production template</strong> is
-                composited for automated fulfilment (QR / name). Map corners on the <strong>production template</strong>{' '}
-                preview below.
+                <strong>Supplier URL</strong> and basic fields are at the top. <strong>Display image</strong> is the
+                ordering picker; <strong>production template</strong> is composited for fulfilment. Map QR / name on the
+                production template preview below (unless non-unique signage).
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -749,6 +965,17 @@ export default function SignageCatalogDashboard() {
               <div>
                 <Label>Description</Label>
                 <Input value={editItemDescription} onChange={(e) => setEditItemDescription(e.target.value)} />
+              </div>
+              <div className="space-y-2 border-t pt-4">
+                <Label>Supplier URL (optional)</Label>
+                <p className="text-[11px] text-slate-500">
+                  Included in order summary emails when this signage type appears on an order.
+                </p>
+                <Input
+                  value={editSupplierUrl}
+                  onChange={(e) => setEditSupplierUrl(e.target.value)}
+                  placeholder="https://…"
+                />
               </div>
               <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -794,17 +1021,6 @@ export default function SignageCatalogDashboard() {
                     placeholder="Or production template URL"
                   />
                 </div>
-              </div>
-              <div className="space-y-2 border-t pt-4">
-                <Label>Supplier URL (optional)</Label>
-                <p className="text-[11px] text-slate-500">
-                  Included in order summary emails when this signage type appears on an order.
-                </p>
-                <Input
-                  value={editSupplierUrl}
-                  onChange={(e) => setEditSupplierUrl(e.target.value)}
-                  placeholder="https://…"
-                />
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
@@ -873,7 +1089,7 @@ export default function SignageCatalogDashboard() {
         </div>
       )}
 
-      {optionItemId !== null && !editingOption && (
+      {optionItemId !== null && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
           onClick={closeAddOptionModal}
@@ -883,7 +1099,15 @@ export default function SignageCatalogDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <CardHeader>
-              <CardTitle className="text-base">Add design option</CardTitle>
+              <CardTitle className="text-base">
+                {editingDesignBundle ? 'Edit design' : 'Add design'}
+              </CardTitle>
+              {editingDesignBundle ? (
+                <p className="text-xs text-slate-500">
+                  Update the design row, language templates, and sizes together. Saving removes language/size rows you
+                  deleted from this form.
+                </p>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -903,6 +1127,9 @@ export default function SignageCatalogDashboard() {
                     onChange={(e) => {
                       const checked = e.target.checked
                       setDesignHasLanguageVariants(checked)
+                      if (checked) {
+                        setOptionTemplateOnly(false)
+                      }
                       if (checked && designLanguageVariations.length === 0) {
                         setDesignLanguageVariations([
                           createLanguageVariationDraft(`${Date.now()}-0`, optionOverlay),
@@ -962,46 +1189,62 @@ export default function SignageCatalogDashboard() {
                           }
                           className="text-xs"
                         />
-                        <SignageTemplateMapper
-                          imageSrc={
-                            row.templateDataUrl.trim() ||
-                            optionParentItem?.template_image_url?.trim() ||
-                            optionParentItem?.image_url ||
-                            ''
-                          }
-                          overlay={row.overlay}
-                          onChange={(next) => updateDesignLanguageVariation(row.id, { overlay: next })}
-                          onImageSized={(nw, nh) => {
-                            setDesignLanguageVariations((prev) =>
-                              prev.map((v) => {
-                                if (v.id !== row.id) return v
-                                const current = v.overlay || {}
-                                return {
-                                  ...v,
-                                  overlay: {
-                                    ...current,
-                                    qrRect:
-                                      current.qrRect &&
-                                      current.qrRect.width >= 8 &&
-                                      current.qrRect.height >= 8
-                                        ? current.qrRect
-                                        : current.qrQuad
-                                          ? rectFromQuadAabb(current.qrQuad)
-                                          : defaultQrRect(nw, nh),
-                                    businessNameRect:
-                                      current.businessNameRect &&
-                                      current.businessNameRect.width >= 8 &&
-                                      current.businessNameRect.height >= 8
-                                        ? current.businessNameRect
-                                        : current.businessNameQuad
-                                          ? rectFromQuadAabb(current.businessNameQuad)
-                                          : defaultBusinessRect(nw, nh),
-                                  },
-                                }
-                              })
-                            )
-                          }}
-                        />
+                        <label className="flex items-center gap-2 text-xs text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={row.templateOnly}
+                            onChange={(e) =>
+                              updateDesignLanguageVariation(row.id, { templateOnly: e.target.checked })
+                            }
+                          />
+                          Template only — no QR or business name for this language
+                        </label>
+                        {!row.templateOnly ? (
+                          <SignageTemplateMapper
+                            imageSrc={
+                              row.templateDataUrl.trim() ||
+                              optionParentItem?.template_image_url?.trim() ||
+                              optionParentItem?.image_url ||
+                              ''
+                            }
+                            overlay={row.overlay}
+                            onChange={(next) => updateDesignLanguageVariation(row.id, { overlay: next })}
+                            onImageSized={(nw, nh) => {
+                              setDesignLanguageVariations((prev) =>
+                                prev.map((v) => {
+                                  if (v.id !== row.id) return v
+                                  const current = v.overlay || {}
+                                  return {
+                                    ...v,
+                                    overlay: {
+                                      ...current,
+                                      qrRect:
+                                        current.qrRect &&
+                                        current.qrRect.width >= 8 &&
+                                        current.qrRect.height >= 8
+                                          ? current.qrRect
+                                          : current.qrQuad
+                                            ? rectFromQuadAabb(current.qrQuad)
+                                            : defaultQrRect(nw, nh),
+                                      businessNameRect:
+                                        current.businessNameRect &&
+                                        current.businessNameRect.width >= 8 &&
+                                        current.businessNameRect.height >= 8
+                                          ? current.businessNameRect
+                                          : current.businessNameQuad
+                                            ? rectFromQuadAabb(current.businessNameQuad)
+                                            : defaultBusinessRect(nw, nh),
+                                    },
+                                  }
+                                })
+                              )
+                            }}
+                          />
+                        ) : (
+                          <p className="rounded-md border border-amber-100 bg-amber-50 px-2 py-2 text-[11px] text-amber-900">
+                            QR / business name mapping is off for this language; fulfilment uses the raw template.
+                          </p>
+                        )}
                       </div>
                     ))}
                     <Button
@@ -1045,11 +1288,19 @@ export default function SignageCatalogDashboard() {
                       onChange={(e) => setOptionTemplateDataUrl(e.target.value)}
                       className="text-xs"
                     />
+                    <label className="flex items-center gap-2 text-xs text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={optionTemplateOnly}
+                        onChange={(e) => setOptionTemplateOnly(e.target.checked)}
+                      />
+                      Template only — no QR or business name composited for this design option
+                    </label>
                   </div>
                 )}
               </div>
 
-              {!designHasLanguageVariants && (
+              {!designHasLanguageVariants && !optionTemplateOnly && (
                 <SignageTemplateMapper
                   imageSrc={
                     optionTemplateDataUrl.trim() ||
@@ -1078,6 +1329,11 @@ export default function SignageCatalogDashboard() {
                   }}
                 />
               )}
+              {!designHasLanguageVariants && optionTemplateOnly && (
+                <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  QR / business name mapping is off; fulfilment uses the raw template for this option.
+                </p>
+              )}
 
               <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 3</p>
@@ -1104,7 +1360,7 @@ export default function SignageCatalogDashboard() {
                   Cancel
                 </Button>
                 <Button type="button" onClick={addOption}>
-                  Save option
+                  {editingDesignBundle ? 'Save design' : 'Add design'}
                 </Button>
               </div>
             </CardContent>
@@ -1112,127 +1368,6 @@ export default function SignageCatalogDashboard() {
         </div>
       )}
 
-      {editingOption && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-          onClick={closeEditOptionModal}
-        >
-          <Card className="max-h-[92vh] w-full max-w-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <CardHeader>
-              <CardTitle className="text-base">Edit option</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={optionType === 'size' ? 'default' : 'outline'}
-                  onClick={() => setOptionType('size')}
-                >
-                  Size
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={optionType === 'design' ? 'default' : 'outline'}
-                  onClick={() => setOptionType('design')}
-                >
-                  Design
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={optionType === 'language' ? 'default' : 'outline'}
-                  onClick={() => setOptionType('language')}
-                >
-                  Language
-                </Button>
-              </div>
-              {optionType === 'size' || optionType === 'language' ? (
-                <div>
-                  <Label>{optionType === 'language' ? 'Language' : 'Size'}</Label>
-                  {optionType === 'language' ? (
-                    <select
-                      className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={sizeValue}
-                      onChange={(e) => setSizeValue(e.target.value)}
-                    >
-                      <option value="">Select language…</option>
-                      {LANGUAGE_CHOICES.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input value={sizeValue} onChange={(e) => setSizeValue(e.target.value)} />
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <Label>Design name</Label>
-                    <Input value={designName} onChange={(e) => setDesignName(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Display preview (picker / modal)</Label>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => onDesignImageFile(e.target.files?.[0] ?? null)}
-                    />
-                  </div>
-                  {designImageDataUrl && (
-                    <Image
-                      src={designImageDataUrl}
-                      alt="Design preview"
-                      width={96}
-                      height={96}
-                      className="h-24 w-24 rounded border object-cover"
-                    />
-                  )}
-                </div>
-              )}
-              <div className="space-y-2 border-t pt-3">
-                <Label className="text-xs">Production template for this option (optional)</Label>
-                <p className="text-[11px] text-slate-500">
-                  Overrides item template for generation when this option is selected.
-                </p>
-                <Input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) {
-                      setOptionTemplateDataUrl('')
-                      return
-                    }
-                    try {
-                      setOptionTemplateDataUrl(await readFileAsDataUrl(file))
-                    } catch {
-                      window.alert('Could not read that file.')
-                    }
-                  }}
-                />
-                <Input
-                  placeholder="Or template URL"
-                  value={optionTemplateDataUrl}
-                  onChange={(e) => setOptionTemplateDataUrl(e.target.value)}
-                  className="text-xs"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" onClick={closeEditOptionModal}>
-                  Cancel
-                </Button>
-                <Button type="button" onClick={saveOptionEdit}>
-                  Save changes
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
   )
 }
