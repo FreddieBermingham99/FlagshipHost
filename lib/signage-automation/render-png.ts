@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { createCanvas } from '@napi-rs/canvas'
 import QRCode from 'qrcode'
 import sharp from 'sharp'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
@@ -39,61 +40,76 @@ function quadAabb(quad: { corners: readonly { x: number; y: number }[] }): {
   }
 }
 
+/** Split long names onto two balanced lines when helpful. */
+function splitBusinessNameLines(normalized: string): string[] {
+  const words = normalized.split(' ').filter(Boolean)
+  if (words.length < 3 || normalized.length < 18) return [normalized]
+  let bestLeft = words[0]
+  let bestRight = words.slice(1).join(' ')
+  let bestDiff = Math.abs(bestLeft.length - bestRight.length)
+  for (let i = 1; i < words.length - 1; i++) {
+    const left = words.slice(0, i + 1).join(' ')
+    const right = words.slice(i + 1).join(' ')
+    const diff = Math.abs(left.length - right.length)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      bestLeft = left
+      bestRight = right
+    }
+  }
+  return [bestLeft, bestRight]
+}
+
+/**
+ * Rasterise business name with @napi-rs/canvas (real fonts + measureText).
+ * Sharp's SVG/librsvg path is unreliable on Linux (missing Arial, tspan quirks).
+ */
 async function businessNameTexturePng(
   text: string,
   color: string,
   texW: number,
   texH: number
 ): Promise<Buffer> {
+  const w = Math.max(1, Math.round(texW))
+  const h = Math.max(1, Math.round(texH))
   const normalized = text.replace(/\s+/g, ' ').trim()
-  const escapeXml = (s: string) =>
-    s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
+  const lines = splitBusinessNameLines(normalized)
 
-  const words = normalized.split(' ').filter(Boolean)
-  let lines = [normalized]
-  if (words.length >= 3 && normalized.length >= 18) {
-    let bestLeft = words[0]
-    let bestRight = words.slice(1).join(' ')
-    let bestDiff = Math.abs(bestLeft.length - bestRight.length)
-    for (let i = 1; i < words.length - 1; i++) {
-      const left = words.slice(0, i + 1).join(' ')
-      const right = words.slice(i + 1).join(' ')
-      const diff = Math.abs(left.length - right.length)
-      if (diff < bestDiff) {
-        bestDiff = diff
-        bestLeft = left
-        bestRight = right
-      }
-    }
-    lines = [bestLeft, bestRight]
+  const canvas = createCanvas(w, h)
+  const ctx = canvas.getContext('2d')
+  ctx.clearRect(0, 0, w, h)
+  ctx.fillStyle = color
+
+  const maxW = w * 1.12
+  const maxH = h * 1.1
+  const lineGap = 1.14
+
+  let fontSize = Math.min(240, Math.floor(Math.min(w / 2, h)))
+  while (fontSize >= 6) {
+    ctx.font = `600 ${fontSize}px sans-serif`
+    const widths = lines.map((line) => ctx.measureText(line).width)
+    const maxLineW = Math.max(...widths, 1)
+    const lineHeight = fontSize * lineGap
+    const blockH = lines.length * lineHeight
+    if (maxLineW <= maxW && blockH <= maxH) break
+    fontSize -= 1
   }
-  const lineCount = lines.length
-  const longest = Math.max(...lines.map((l) => Math.max(1, l.length)))
-  const approxGlyphWidth = 0.56
-  // Slightly relaxed constraints: prefer readability over strict clipping.
-  const maxByWidth = (texW * 1.03) / (longest * approxGlyphWidth)
-  const maxByHeight = (texH * 0.9) / lineCount
-  const minByHeight = lineCount === 1 ? Math.max(13, texH * 0.36) : Math.max(12, texH * 0.23)
-  const fittedFontSize = Math.max(minByHeight, Math.min(maxByWidth, maxByHeight))
 
-  const lineHeight = fittedFontSize * 1.12
-  const totalBlockHeight = lineHeight * lineCount
-  const firstY = texH / 2 - totalBlockHeight / 2 + lineHeight * 0.82
-  const textLines = lines
-    .map(
-      (line, idx) =>
-        `<tspan x="50%" y="${Math.round((firstY + idx * lineHeight) * 100) / 100}">${escapeXml(line)}</tspan>`
-    )
-    .join('')
-  const svg = `<svg width="${texW}" height="${texH}" xmlns="http://www.w3.org/2000/svg">
-    <text text-anchor="middle"
-      fill="${color}" font-size="${Math.round(fittedFontSize * 100) / 100}" font-family="Arial, Helvetica, sans-serif">${textLines}</text>
-  </svg>`
-  return sharp(Buffer.from(svg)).png().toBuffer()
+  if (fontSize < 6) fontSize = 6
+  ctx.font = `600 ${fontSize}px sans-serif`
+
+  const lineHeight = fontSize * lineGap
+  const blockH = lines.length * lineHeight
+  let y = (h - blockH) / 2 + lineHeight / 2
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const cx = w / 2
+  for (const line of lines) {
+    ctx.fillText(line, cx, y)
+    y += lineHeight
+  }
+
+  return canvas.toBuffer('image/png')
 }
 
 export async function renderSignagePng(params: {
