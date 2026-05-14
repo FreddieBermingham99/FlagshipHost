@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useRef } from 'react'
+import Image from 'next/image'
 import {
   ArrowRight,
   Star,
@@ -951,11 +952,15 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
       <header className="sticky top-0 z-40 border-b bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/70">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
-            <img
+            <Image
               src="https://i.postimg.cc/bwdb20Ky/Google-reservations-logo-8.png"
               alt="Stasher"
-              className="h-6"
-              onError={(e) => ((e.currentTarget.style.display = 'none'))}
+              width={120}
+              height={24}
+              className="h-6 w-auto"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none'
+              }}
             />
             <span className="font-bold">{t.programTitle}</span>
             <Pill>{t.invitation}</Pill>
@@ -1153,10 +1158,13 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
                         </ul>
                       </div>
                       <div className="flex items-center justify-center">
-                        <img
+                        <Image
                           src={p.parisTwo || defaultImages.caseStudy}
                           alt={p.businessName}
-                          className="aspect-[4/5] w-full max-w-xs rounded-xl border bg-white shadow object-cover"
+                          width={400}
+                          height={500}
+                          className="aspect-[4/5] w-full max-w-xs rounded-xl border bg-white object-cover shadow"
+                          sizes="(max-width: 768px) 100vw, 20rem"
                         />
                       </div>
                     </div>
@@ -1206,10 +1214,13 @@ export default function FlagshipStashpointLanding(props: FlagshipProps) {
       {/* Case study / expected impact */}
       <Section id="case">
         <div className="grid items-center gap-10 lg:grid-cols-2">
-          <img
+          <Image
             className="h-80 w-full rounded-2xl object-cover shadow"
             src={p.parisOne || defaultImages.caseStudy}
             alt="Case study"
+            width={1200}
+            height={640}
+            sizes="(max-width: 1024px) 100vw, 50vw"
           />
           <div>
             <h2 className="text-2xl font-bold tracking-tight md:text-3xl">

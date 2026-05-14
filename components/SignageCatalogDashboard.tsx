@@ -154,7 +154,6 @@ export default function SignageCatalogDashboard() {
   const [maxQuantity, setMaxQuantity] = useState(1)
   const [optionItemId, setOptionItemId] = useState<number | null>(null)
   const [designName, setDesignName] = useState('')
-  const [designImageDataUrl, setDesignImageDataUrl] = useState('')
   const [designHasLanguageVariants, setDesignHasLanguageVariants] = useState(false)
   const [designLanguageVariations, setDesignLanguageVariations] = useState<DesignLanguageVariationDraft[]>([])
   const [designSizeOptionsCsv, setDesignSizeOptionsCsv] = useState('')
@@ -246,7 +245,6 @@ export default function SignageCatalogDashboard() {
     setDesignBundleSizesSnapshot([])
     setOptionItemId(itemId)
     setDesignName('')
-    setDesignImageDataUrl('')
     setDesignHasLanguageVariants(false)
     setDesignSizeOptionsCsv('')
     setDesignAllowCustomDimensionsCm(false)
@@ -333,7 +331,6 @@ export default function SignageCatalogDashboard() {
 
     setOptionItemId(itemId)
     setDesignName(designOption.option_name || '')
-    setDesignImageDataUrl(designOption.design_image_url?.trim() ? designOption.design_image_url : '')
 
     const inheritedOverlay = overlayConfigFromCatalog(item.overlay_config)
 
@@ -381,19 +378,6 @@ export default function SignageCatalogDashboard() {
     setDesignLanguageVariations((prev) =>
       prev.map((v) => (v.id === id ? { ...v, ...patch } : v))
     )
-  }
-
-  const onDesignImageFile = async (file: File | null) => {
-    if (!file) {
-      setDesignImageDataUrl('')
-      return
-    }
-    try {
-      const dataUrl = await readFileAsDataUrl(file)
-      setDesignImageDataUrl(dataUrl)
-    } catch {
-      window.alert('Could not read that file.')
-    }
   }
 
   const onLanguageTemplateFile = async (id: string, file: File | null) => {

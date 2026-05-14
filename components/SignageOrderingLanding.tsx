@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -647,9 +648,11 @@ export default function SignageOrderingLanding({
                       return preview.src ? (
                         <div>
                           <p className="mb-2 text-sm font-medium text-slate-800">{preview.title}</p>
-                          <img
+                          <Image
                             src={preview.src}
                             alt={preview.title}
+                            width={800}
+                            height={400}
                             className="max-h-52 w-auto rounded border bg-white object-contain"
                           />
                         </div>
@@ -682,9 +685,11 @@ export default function SignageOrderingLanding({
                               }
                             >
                               {opt.design_image_url ? (
-                                <img
+                                <Image
                                   src={opt.design_image_url}
                                   alt={opt.option_name}
+                                  width={56}
+                                  height={56}
                                   className="mb-1 h-14 w-14 rounded object-cover"
                                 />
                               ) : null}
