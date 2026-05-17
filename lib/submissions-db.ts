@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS signage_catalog_items (
   name TEXT NOT NULL,
   description TEXT,
   image_url TEXT,
+  signage_kind TEXT NOT NULL DEFAULT 'standard',
   requires_unique_qr BOOLEAN NOT NULL DEFAULT TRUE,
   overlay_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   max_quantity INTEGER NOT NULL DEFAULT 1,
@@ -126,6 +127,10 @@ WHERE max_quantity IS NULL OR max_quantity < 1;
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS template_image_url TEXT;
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS requires_customisation BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS supplier_url TEXT;
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS signage_kind TEXT NOT NULL DEFAULT 'standard';
+UPDATE signage_catalog_items
+SET signage_kind = 'standard'
+WHERE signage_kind IS NULL OR signage_kind NOT IN ('standard', 'review');
 
 CREATE TABLE IF NOT EXISTS signage_catalog_item_options (
   id SERIAL PRIMARY KEY,
@@ -148,6 +153,14 @@ ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS design_image_u
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS overlay_config JSONB;
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS template_image_url TEXT;
 ALTER TABLE signage_catalog_item_options ADD COLUMN IF NOT EXISTS template_only BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS signage_review_links (
+  stashpoint_id TEXT PRIMARY KEY,
+  review_link TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_signage_review_links_updated ON signage_review_links (updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS signage_orders (
   id SERIAL PRIMARY KEY,
@@ -687,6 +700,8 @@ export type SignageCatalogItem = {
   image_url: string | null
   /** Flat print template for compositing; when null, generation falls back to image_url. */
   template_image_url: string | null
+  /** `review` signage uses stashpoint-specific review URLs uploaded via CSV. */
+  signage_kind: 'standard' | 'review'
   /** When false, this is non-unique signage: generated file is the template only (no QR or business name). */
   requires_customisation: boolean
   requires_unique_qr: boolean
@@ -710,6 +725,7 @@ export type SignageCatalogItemInsert = {
   description?: string | null
   image_url?: string | null
   template_image_url?: string | null
+  signage_kind?: 'standard' | 'review'
   requires_customisation?: boolean
   requires_unique_qr?: boolean
   overlay_config?: Record<string, unknown>
@@ -853,14 +869,15 @@ export async function createSignageCatalogItem(
   return withClient(async (c) => {
     const res = await c.query<SignageCatalogItem>(
       `INSERT INTO signage_catalog_items
-       (name, description, image_url, template_image_url, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order, supplier_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
+       (name, description, image_url, template_image_url, signage_kind, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order, supplier_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
        RETURNING *`,
       [
         data.name,
         data.description ?? null,
         data.image_url ?? null,
         data.template_image_url ?? null,
+        data.signage_kind === 'review' ? 'review' : 'standard',
         data.requires_customisation ?? true,
         data.requires_unique_qr ?? true,
         JSON.stringify(data.overlay_config ?? {}),
@@ -887,21 +904,23 @@ export async function updateSignageCatalogItem(
          description = COALESCE($2, description),
          image_url = COALESCE($3, image_url),
          template_image_url = COALESCE($4, template_image_url),
-         requires_customisation = COALESCE($5, requires_customisation),
-         requires_unique_qr = COALESCE($6, requires_unique_qr),
-         overlay_config = COALESCE($7::jsonb, overlay_config),
-         max_quantity = COALESCE($8, max_quantity),
-         is_visible = COALESCE($9, is_visible),
-         sort_order = COALESCE($10, sort_order),
-         supplier_url = COALESCE($12, supplier_url),
+        signage_kind = COALESCE($5, signage_kind),
+        requires_customisation = COALESCE($6, requires_customisation),
+        requires_unique_qr = COALESCE($7, requires_unique_qr),
+        overlay_config = COALESCE($8::jsonb, overlay_config),
+        max_quantity = COALESCE($9, max_quantity),
+        is_visible = COALESCE($10, is_visible),
+        sort_order = COALESCE($11, sort_order),
+        supplier_url = COALESCE($13, supplier_url),
          updated_at = now()
-       WHERE id = $11
+       WHERE id = $12
        RETURNING *`,
       [
         data.name ?? null,
         data.description ?? null,
         data.image_url ?? null,
         data.template_image_url ?? null,
+        data.signage_kind === 'review' ? 'review' : data.signage_kind === 'standard' ? 'standard' : null,
         data.requires_customisation ?? null,
         data.requires_unique_qr ?? null,
         data.overlay_config ? JSON.stringify(data.overlay_config) : null,
@@ -1004,6 +1023,70 @@ export async function deleteSignageCatalogOption(id: number): Promise<boolean> {
   return withClient(async (c) => {
     const res = await c.query('DELETE FROM signage_catalog_item_options WHERE id = $1', [id])
     return (res.rowCount ?? 0) > 0
+  })
+}
+
+export async function getSignageReviewLink(stashpointId: string): Promise<string | null> {
+  await ensureTable()
+  const id = String(stashpointId || '').trim()
+  if (!id) return null
+  return withClient(async (c) => {
+    const res = await c.query<{ review_link: string }>(
+      'SELECT review_link FROM signage_review_links WHERE stashpoint_id = $1 LIMIT 1',
+      [id]
+    )
+    const raw = res.rows[0]?.review_link
+    const trimmed = typeof raw === 'string' ? raw.trim() : ''
+    return trimmed || null
+  })
+}
+
+export async function upsertSignageReviewLinks(
+  rows: Array<{ stashpoint_id: string; review_link: string | null }>
+): Promise<{ upserted: number; deleted: number }> {
+  await ensureTable()
+  const cleaned = rows
+    .map((r) => ({
+      stashpoint_id: String(r.stashpoint_id || '').trim(),
+      review_link: r.review_link == null ? null : String(r.review_link).trim(),
+    }))
+    .filter((r) => r.stashpoint_id.length > 0)
+  if (cleaned.length === 0) return { upserted: 0, deleted: 0 }
+
+  return withClient(async (c) => {
+    await c.query('BEGIN')
+    try {
+      const withLink = cleaned.filter((r) => r.review_link && r.review_link.length > 0)
+      const toDelete = cleaned.filter((r) => !r.review_link).map((r) => r.stashpoint_id)
+
+      let upserted = 0
+      let deleted = 0
+
+      for (const row of withLink) {
+        await c.query(
+          `INSERT INTO signage_review_links (stashpoint_id, review_link, updated_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (stashpoint_id)
+           DO UPDATE SET review_link = EXCLUDED.review_link, updated_at = now()`,
+          [row.stashpoint_id, row.review_link]
+        )
+        upserted += 1
+      }
+
+      if (toDelete.length > 0) {
+        const delRes = await c.query(
+          'DELETE FROM signage_review_links WHERE stashpoint_id = ANY($1::text[])',
+          [toDelete]
+        )
+        deleted = delRes.rowCount ?? 0
+      }
+
+      await c.query('COMMIT')
+      return { upserted, deleted }
+    } catch (error) {
+      await c.query('ROLLBACK')
+      throw error
+    }
   })
 }
 

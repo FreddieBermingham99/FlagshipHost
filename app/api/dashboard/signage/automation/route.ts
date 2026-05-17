@@ -16,7 +16,12 @@ export async function GET() {
   }
   try {
     const settings = await getSignageAutomationSettings()
-    return NextResponse.json({ settings })
+    return NextResponse.json({
+      settings: {
+        ...settings,
+        use_short_links: false,
+      },
+    })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Failed to load settings' },
@@ -41,7 +46,7 @@ export async function POST(req: Request) {
       utm_campaign: typeof body.utm_campaign === 'string' ? body.utm_campaign : undefined,
       utm_term: typeof body.utm_term === 'string' ? body.utm_term : undefined,
       utm_content: typeof body.utm_content === 'string' ? body.utm_content : undefined,
-      use_short_links: typeof body.use_short_links === 'boolean' ? body.use_short_links : undefined,
+      use_short_links: false,
       digest_recipients: Array.isArray(body.digest_recipients)
         ? body.digest_recipients.map((x) => String(x))
         : undefined,

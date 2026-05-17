@@ -126,12 +126,22 @@ function selectedValueForType(
   return ''
 }
 
+function resolveSelectedDesignValue(
+  selectedOptions: Record<string, string> | undefined,
+  designOptions: CatalogOption[]
+): string {
+  const explicit = selectedValueForType(selectedOptions, designOptions)
+  if (explicit) return explicit
+  if (designOptions.length === 1) return designOptions[0]!.option_value
+  return ''
+}
+
 function resolveModalPreviewTemplate(
   item: CatalogItem,
   selectedOptions: Record<string, string>
 ): { src: string | null; title: string } {
   const typed = groupedOptionsByType(item)
-  const selectedDesign = selectedValueForType(selectedOptions, typed.design)
+  const selectedDesign = resolveSelectedDesignValue(selectedOptions, typed.design)
   const scopedLanguages = languageOptionsForDesign(typed.language, selectedDesign)
   const selectedLanguage = selectedValueForType(selectedOptions, scopedLanguages)
 
@@ -181,6 +191,69 @@ function sizeOptionsForDesign(
   return sizes.filter((o) => o.option_group_label === 'Size')
 }
 
+function groupByLabel(options: CatalogOption[]): Record<string, CatalogOption[]> {
+  return options.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+    if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
+    acc[opt.option_group_label].push(opt)
+    return acc
+  }, {})
+}
+
+type ItemOptionProgress = {
+  selectedDesign: string
+  designRequired: boolean
+  designComplete: boolean
+  scopedLanguages: CatalogOption[]
+  languageRequired: boolean
+  languageComplete: boolean
+  scopedSizes: CatalogOption[]
+  sizeRequired: boolean
+  sizeComplete: boolean
+  customSizeComplete: boolean
+  allComplete: boolean
+}
+
+function getItemOptionProgress(item: CatalogItem, config?: ItemConfig): ItemOptionProgress {
+  const typed = groupedOptionsByType(item)
+  const selectedOptions = config?.selected_options || {}
+  const selectedDesign = resolveSelectedDesignValue(selectedOptions, typed.design)
+  const scopedLanguages = languageOptionsForDesign(typed.language, selectedDesign)
+  const scopedSizes = sizeOptionsForDesign(typed.size, selectedDesign)
+
+  const designRequired = typed.design.length > 1
+  const designComplete = !designRequired || Boolean(selectedDesign)
+
+  const languageGroups = Object.values(groupByLabel(scopedLanguages))
+  const languageRequired = languageGroups.length > 0
+  const languageComplete =
+    !languageRequired ||
+    languageGroups.every((group) => Boolean(selectedValueForType(selectedOptions, group)))
+
+  const sizeGroups = Object.values(groupByLabel(scopedSizes))
+  const sizeRequired = sizeGroups.length > 0
+  const sizeSelections = sizeGroups.map((group) => selectedValueForType(selectedOptions, group))
+  const sizeComplete = !sizeRequired || sizeSelections.every(Boolean)
+
+  const requiresCustomSize = sizeSelections.includes('custom-cm')
+  const width = Number(config?.custom_size_cm?.width || 0)
+  const height = Number(config?.custom_size_cm?.height || 0)
+  const customSizeComplete = !requiresCustomSize || (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)
+
+  return {
+    selectedDesign,
+    designRequired,
+    designComplete,
+    scopedLanguages,
+    languageRequired,
+    languageComplete,
+    scopedSizes,
+    sizeRequired,
+    sizeComplete,
+    customSizeComplete,
+    allComplete: designComplete && languageComplete && sizeComplete && customSizeComplete,
+  }
+}
+
 export default function SignageOrderingLanding({
   stashpointId,
   businessName,
@@ -200,8 +273,13 @@ export default function SignageOrderingLanding({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [configByItemId, setConfigByItemId] = useState<Record<string, ItemConfig>>({})
   const [optionModalItemId, setOptionModalItemId] = useState<string | null>(null)
+  const [optionModalStepIndex, setOptionModalStepIndex] = useState(0)
+  const [optionModalDraftConfig, setOptionModalDraftConfig] = useState<ItemConfig | null>(null)
+  const [optionModalRequiresSelectionConfirm, setOptionModalRequiresSelectionConfirm] = useState(false)
+  const [ctaPulseActive, setCtaPulseActive] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const previousSelectedIdsRef = useRef<string[]>([])
+  const ctaPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stashpointsForOrder = useMemo<SignageStashpointSummary[]>(() => {
     if (signageStashpoints && signageStashpoints.length > 0) return signageStashpoints
@@ -255,6 +333,30 @@ export default function SignageOrderingLanding({
     () => (modalItem ? groupedOptionsByType(modalItem) : null),
     [modalItem]
   )
+  const modalConfig = modalItem ? (optionModalDraftConfig ?? configByItemId[String(modalItem.id)]) : undefined
+  const modalProgress = useMemo(
+    () => (modalItem ? getItemOptionProgress(modalItem, modalConfig) : null),
+    [modalItem, modalConfig]
+  )
+  const modalSteps = useMemo(() => {
+    if (!modalProgress) return [] as Array<{ key: 'design' | 'language' | 'size'; title: string; complete: boolean }>
+    const steps: Array<{ key: 'design' | 'language' | 'size'; title: string; complete: boolean }> = []
+    if (modalProgress.designRequired) {
+      steps.push({ key: 'design', title: 'Choose a design', complete: modalProgress.designComplete })
+    }
+    if (modalProgress.languageRequired) {
+      steps.push({ key: 'language', title: 'Choose language', complete: modalProgress.languageComplete })
+    }
+    if (modalProgress.sizeRequired) {
+      steps.push({
+        key: 'size',
+        title: 'Choose size',
+        complete: modalProgress.sizeComplete && modalProgress.customSizeComplete,
+      })
+    }
+    return steps
+  }, [modalProgress])
+  const currentModalStep = modalSteps[optionModalStepIndex]
 
   const setQuantity = (itemId: string, quantity: number) => {
     const max = maxQuantityById[itemId] ?? 1
@@ -271,55 +373,157 @@ export default function SignageOrderingLanding({
     }))
   }
 
-  const setOption = (itemId: string, group: string, value: string) => {
+  const ensureConfigForItem = (itemId: string, prev?: ItemConfig): ItemConfig => {
+    if (prev) return prev
+    const item = items.find((x) => String(x.id) === itemId)
+    const defaultOptions: Record<string, string> = {}
+    if (item) {
+      const typed = groupedOptionsByType(item)
+      if (typed.design.length === 1) {
+        defaultOptions[typed.design[0]!.option_group_label] = typed.design[0]!.option_value
+      }
+      const grouped = item.options.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
+        if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
+        acc[opt.option_group_label].push(opt)
+        return acc
+      }, {})
+      for (const [group, opts] of Object.entries(grouped)) {
+        const languageDefault = findDefaultOptionValue(opts, resolvedLocale)
+        if (languageDefault) defaultOptions[group] = languageDefault
+      }
+    }
+    return {
+      quantity: 1,
+      selected_options: defaultOptions,
+      target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+    }
+  }
+
+  const triggerCtaPulse = () => {
+    setCtaPulseActive(true)
+    if (ctaPulseTimerRef.current) {
+      clearTimeout(ctaPulseTimerRef.current)
+    }
+    ctaPulseTimerRef.current = setTimeout(() => {
+      setCtaPulseActive(false)
+      ctaPulseTimerRef.current = null
+    }, 1200)
+  }
+
+  const openOptionModal = (itemId: string, requiresSelectionConfirm = false) => {
+    const base = ensureConfigForItem(itemId, configByItemId[itemId])
+    setOptionModalDraftConfig({
+      quantity: base.quantity,
+      selected_options: { ...(base.selected_options || {}) },
+      target_stashpoint_ids: [...(base.target_stashpoint_ids || [])],
+      custom_size_cm: base.custom_size_cm
+        ? { width: base.custom_size_cm.width, height: base.custom_size_cm.height }
+        : undefined,
+    })
+    setOptionModalRequiresSelectionConfirm(requiresSelectionConfirm)
+    setCtaPulseActive(false)
+    setOptionModalItemId(itemId)
+    setOptionModalStepIndex(0)
+  }
+
+  const closeOptionModalWithoutSaving = (discardPendingSelection = true) => {
+    if (discardPendingSelection && optionModalRequiresSelectionConfirm && optionModalItemId) {
+      const itemId = optionModalItemId
+      setSelectedIds((prev) => prev.filter((id) => id !== itemId))
+      previousSelectedIdsRef.current = previousSelectedIdsRef.current.filter((id) => id !== itemId)
+      setConfigByItemId((prev) => {
+        const next = { ...prev }
+        delete next[itemId]
+        return next
+      })
+    }
+    setOptionModalItemId(null)
+    setOptionModalDraftConfig(null)
+    setOptionModalStepIndex(0)
+    setOptionModalRequiresSelectionConfirm(false)
+    setCtaPulseActive(false)
+  }
+
+  const confirmOptionModal = () => {
+    if (!modalItem || !modalConfig || (modalProgress && !modalProgress.allComplete)) return
+    const itemId = String(modalItem.id)
     setConfigByItemId((prev) => ({
       ...prev,
       [itemId]: {
-        ...(prev[itemId] || {
-          quantity: 1,
-          selected_options: {},
-          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
-        }),
-        selected_options: {
-          ...(prev[itemId]?.selected_options || {}),
-          [group]: value,
-        },
-        custom_size_cm:
-          group.startsWith('Size') && value !== 'custom-cm' ? undefined : prev[itemId]?.custom_size_cm,
+        quantity: Math.max(1, modalConfig.quantity || 1),
+        selected_options: { ...(modalConfig.selected_options || {}) },
+        target_stashpoint_ids: [...(modalConfig.target_stashpoint_ids || [])],
+        custom_size_cm: modalConfig.custom_size_cm
+          ? {
+              width: modalConfig.custom_size_cm.width,
+              height: modalConfig.custom_size_cm.height,
+            }
+          : undefined,
       },
     }))
+    closeOptionModalWithoutSaving(false)
+  }
+
+  const updateModalDraft = (updater: (prev: ItemConfig) => ItemConfig) => {
+    const itemId = optionModalItemId
+    if (!itemId) return
+    setOptionModalDraftConfig((prev) => updater(ensureConfigForItem(itemId, prev ?? configByItemId[itemId])))
+  }
+
+  const setOption = (itemId: string, group: string, value: string) => {
+    if (optionModalItemId !== itemId) return
+    updateModalDraft((prev) => ({
+      ...prev,
+      selected_options: {
+        ...(prev.selected_options || {}),
+        [group]: value,
+      },
+      custom_size_cm:
+        group.startsWith('Size') && value !== 'custom-cm' ? undefined : prev.custom_size_cm,
+    }))
+    triggerCtaPulse()
+  }
+
+  const setDesignOption = (item: CatalogItem, group: string, value: string) => {
+    const itemId = String(item.id)
+    if (optionModalItemId !== itemId) return
+    updateModalDraft((base) => {
+      const typed = groupedOptionsByType(item)
+      const cleaned = { ...(base.selected_options || {}) }
+      for (const opt of [...typed.language, ...typed.size]) {
+        delete cleaned[opt.option_group_label]
+      }
+      return {
+        ...base,
+        selected_options: {
+          ...cleaned,
+          [group]: value,
+        },
+        custom_size_cm: undefined,
+      }
+    })
+    triggerCtaPulse()
   }
 
   const setTargetStashpoints = (itemId: string, ids: string[]) => {
-    setConfigByItemId((prev) => ({
+    if (optionModalItemId !== itemId) return
+    updateModalDraft((prev) => ({
       ...prev,
-      [itemId]: {
-        ...(prev[itemId] || {
-          quantity: 1,
-          selected_options: {},
-          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
-        }),
-        target_stashpoint_ids: ids,
-      },
+      target_stashpoint_ids: ids,
     }))
   }
 
   const setCustomSizeCm = (itemId: string, patch: Partial<{ width: string; height: string }>) => {
-    setConfigByItemId((prev) => ({
+    if (optionModalItemId !== itemId) return
+    updateModalDraft((prev) => ({
       ...prev,
-      [itemId]: {
-        ...(prev[itemId] || {
-          quantity: 1,
-          selected_options: {},
-          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
-        }),
-        custom_size_cm: {
-          width: prev[itemId]?.custom_size_cm?.width ?? '',
-          height: prev[itemId]?.custom_size_cm?.height ?? '',
-          ...patch,
-        },
+      custom_size_cm: {
+        width: prev.custom_size_cm?.width ?? '',
+        height: prev.custom_size_cm?.height ?? '',
+        ...patch,
       },
     }))
+    triggerCtaPulse()
   }
 
   const handlePickerChange = (ids: string[]) => {
@@ -330,24 +534,7 @@ export default function SignageOrderingLanding({
         const next = { ...prev }
         for (const itemId of added) {
           if (!next[itemId]) {
-            const item = items.find((x) => String(x.id) === itemId)
-            const defaultOptions: Record<string, string> = {}
-            if (item) {
-              const grouped = item.options.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
-                if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
-                acc[opt.option_group_label].push(opt)
-                return acc
-              }, {})
-              for (const [group, opts] of Object.entries(grouped)) {
-                const languageDefault = findDefaultOptionValue(opts, resolvedLocale)
-                if (languageDefault) defaultOptions[group] = languageDefault
-              }
-            }
-            next[itemId] = {
-              quantity: 1,
-              selected_options: defaultOptions,
-              target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
-            }
+            next[itemId] = ensureConfigForItem(itemId)
           }
         }
         return next
@@ -358,7 +545,7 @@ export default function SignageOrderingLanding({
         (item) => added.includes(String(item.id)) && item.options.length > 0
       )
       if (withOptions) {
-        setOptionModalItemId(String(withOptions.id))
+        openOptionModal(String(withOptions.id), true)
       }
     }
     previousSelectedIdsRef.current = ids
@@ -382,6 +569,52 @@ export default function SignageOrderingLanding({
     previousSelectedIdsRef.current = selectedIds
   }, [selectedIds])
 
+  useEffect(() => {
+    if (!modalItem) return
+    const itemId = String(modalItem.id)
+    const typed = groupedOptionsByType(modalItem)
+    if (typed.design.length !== 1) return
+    const onlyDesign = typed.design[0]
+    if (!onlyDesign) return
+    const selected = modalConfig?.selected_options?.[onlyDesign.option_group_label]
+    if (selected === onlyDesign.option_value) return
+    if (optionModalItemId !== itemId) return
+    setOptionModalDraftConfig((prev) => {
+      const base =
+        prev ??
+        configByItemId[itemId] ?? {
+          quantity: 1,
+          selected_options: {},
+          target_stashpoint_ids: stashpointsForOrder.map((s) => s.stashpointId),
+        }
+      return {
+        ...base,
+        selected_options: {
+          ...(base.selected_options || {}),
+          [onlyDesign.option_group_label]: onlyDesign.option_value,
+        },
+      }
+    })
+  }, [modalItem, modalConfig, optionModalItemId, configByItemId, stashpointsForOrder])
+
+  useEffect(() => {
+    if (!optionModalItemId) {
+      setOptionModalStepIndex(0)
+      return
+    }
+    if (modalSteps.length === 0) {
+      setOptionModalStepIndex(0)
+      return
+    }
+    setOptionModalStepIndex((prev) => Math.max(0, Math.min(prev, modalSteps.length - 1)))
+  }, [optionModalItemId, modalSteps])
+
+  useEffect(() => {
+    return () => {
+      if (ctaPulseTimerRef.current) clearTimeout(ctaPulseTimerRef.current)
+    }
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (selectedCatalogItems.length === 0) {
@@ -389,11 +622,21 @@ export default function SignageOrderingLanding({
       return
     }
 
+    const firstIncomplete = selectedCatalogItems.find((item) => {
+      const cfg = configByItemId[String(item.id)]
+      return !getItemOptionProgress(item, cfg).allComplete
+    })
+    if (firstIncomplete) {
+      openOptionModal(String(firstIncomplete.id))
+      window.alert(`Please complete all required options for "${firstIncomplete.name}" before submitting.`)
+      return
+    }
+
     const selectedItems: SelectedItem[] = selectedCatalogItems.map((item) => {
       const cfg = configByItemId[String(item.id)]
       const typed = groupedOptionsByType(item)
       const selectedOptions = cfg?.selected_options || {}
-      const selectedDesign = selectedValueForType(selectedOptions, typed.design)
+      const selectedDesign = resolveSelectedDesignValue(selectedOptions, typed.design)
       const selectedLanguage = selectedValueForType(selectedOptions, typed.language)
       const selectedSize = selectedValueForType(
         selectedOptions,
@@ -515,6 +758,7 @@ export default function SignageOrderingLanding({
               items={pickerItems}
               storageKey={`signage-order-${stashpointId || businessName}`}
               initialSelected={[]}
+              selectedIds={selectedIds}
               onChange={handlePickerChange}
               quantityById={Object.fromEntries(
                 Object.entries(configByItemId).map(([id, cfg]) => [id, cfg.quantity])
@@ -548,7 +792,9 @@ export default function SignageOrderingLanding({
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => setOptionModalItemId(String(item.id))}
+                            onClick={() => {
+                              openOptionModal(String(item.id))
+                            }}
                           >
                             Configure
                           </Button>
@@ -629,10 +875,10 @@ export default function SignageOrderingLanding({
       {modalItem && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-          onClick={() => setOptionModalItemId(null)}
+          onClick={closeOptionModalWithoutSaving}
         >
           <Card
-            className="w-full max-w-xl"
+            className="max-h-[88vh] w-full max-w-2xl overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <CardHeader>
@@ -643,17 +889,24 @@ export default function SignageOrderingLanding({
                 <>
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                     {(() => {
-                      const selectedOptions = configByItemId[String(modalItem.id)]?.selected_options || {}
+                      const selectedOptions = modalConfig?.selected_options || {}
                       const preview = resolveModalPreviewTemplate(modalItem, selectedOptions)
-                      return preview.src ? (
+                      const onDesignStep = currentModalStep?.key === 'design'
+                      const selectedDesign = modalProgress?.selectedDesign || ''
+                      const shouldHidePreview = onDesignStep && !selectedDesign
+                      return shouldHidePreview ? (
+                        <p className="text-sm text-slate-600">
+                          Choose a design below to preview the final artwork.
+                        </p>
+                      ) : preview.src ? (
                         <div>
                           <p className="mb-2 text-sm font-medium text-slate-800">{preview.title}</p>
                           <Image
                             src={preview.src}
                             alt={preview.title}
-                            width={800}
-                            height={400}
-                            className="max-h-52 w-auto rounded border bg-white object-contain"
+                            width={1200}
+                            height={700}
+                            className="max-h-[40vh] w-full rounded border bg-white object-contain"
                           />
                         </div>
                       ) : (
@@ -662,67 +915,69 @@ export default function SignageOrderingLanding({
                     })()}
                   </div>
 
-                  {modalTypedOptions.design.length > 0 && (
+                  {modalSteps.length > 0 ? (
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-sm font-medium text-slate-800">1) Choose a design</p>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-800">
+                          Step {optionModalStepIndex + 1} of {modalSteps.length}: {currentModalStep?.title}
+                        </p>
+                        <span className="text-xs text-slate-500">
+                          {modalSteps.map((step) => (step.complete ? '✓' : '•')).join(' ')}
+                        </span>
+                      </div>
                       <p className="mb-2 text-xs text-slate-500">
                         Your default language is{' '}
                         <span className="font-semibold uppercase">{resolvedLocale}</span>.
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {modalTypedOptions.design.map((opt) => {
-                          const selected =
-                            configByItemId[String(modalItem.id)]?.selected_options?.[
-                              opt.option_group_label
-                            ] === opt.option_value
-                          return (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              className={`rounded border p-2 text-left ${selected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}
-                              onClick={() =>
-                                setOption(String(modalItem.id), opt.option_group_label, opt.option_value)
-                              }
-                            >
-                              {opt.design_image_url ? (
-                                <Image
-                                  src={opt.design_image_url}
-                                  alt={opt.option_name}
-                                  width={56}
-                                  height={56}
-                                  className="mb-1 h-14 w-14 rounded object-cover"
-                                />
-                              ) : null}
-                              <p className="text-xs font-medium text-slate-700">{opt.option_name}</p>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
 
-                  {modalTypedOptions.language.length > 0 && (
-                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-sm font-medium text-slate-800">2) Confirm language</p>
-                      {(() => {
-                        const selectedDesign = selectedValueForType(
-                          configByItemId[String(modalItem.id)]?.selected_options || {},
-                          modalTypedOptions.design
-                        )
-                        const scopedLanguages = languageOptionsForDesign(
-                          modalTypedOptions.language,
-                          selectedDesign
-                        )
-                        const grouped = scopedLanguages.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
-                          if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
-                          acc[opt.option_group_label].push(opt)
-                          return acc
-                        }, {})
-                        return Object.entries(grouped).map(([groupLabel, opts]) => (
+                      {currentModalStep?.key === 'design' && (
+                        <div className="flex flex-wrap gap-3">
+                          {modalTypedOptions.design.map((opt) => {
+                            const selected =
+                              modalConfig?.selected_options?.[opt.option_group_label] === opt.option_value
+                            const hasSelectedDesign = Boolean(modalProgress?.selectedDesign)
+                            const showLargeChoices = !hasSelectedDesign
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                className={`rounded border p-2 text-left transition-all ${
+                                  selected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'
+                                } ${showLargeChoices ? 'w-[220px]' : 'w-[150px]'}`}
+                                onClick={() =>
+                                  setDesignOption(modalItem, opt.option_group_label, opt.option_value)
+                                }
+                              >
+                                {opt.design_image_url ? (
+                                  <div
+                                    className={`mb-2 rounded border bg-white p-1 ${
+                                      showLargeChoices ? 'h-48 w-48' : 'h-28 w-28'
+                                    }`}
+                                  >
+                                    <Image
+                                      src={opt.design_image_url}
+                                      alt={opt.option_name}
+                                      width={showLargeChoices ? 188 : 108}
+                                      height={showLargeChoices ? 188 : 108}
+                                      className="h-full w-full object-contain"
+                                    />
+                                  </div>
+                                ) : null}
+                                <p className={`${showLargeChoices ? 'text-sm' : 'text-xs'} font-medium text-slate-700`}>
+                                  {opt.option_name}
+                                </p>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {currentModalStep?.key === 'language' &&
+                        Object.entries(groupByLabel(modalProgress?.scopedLanguages || [])).map(([groupLabel, opts]) => (
                           <select
                             key={groupLabel}
                             className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
-                            value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
+                            value={modalConfig?.selected_options?.[groupLabel] || ''}
                             onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
                           >
                             <option value="">Select language...</option>
@@ -732,26 +987,12 @@ export default function SignageOrderingLanding({
                               </option>
                             ))}
                           </select>
-                        ))
-                      })()}
-                    </div>
-                  )}
+                        ))}
 
-                  {modalTypedOptions.size.length > 0 && (
-                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-sm font-medium text-slate-800">3) Choose size</p>
-                      {(() => {
-                        const selectedOptions =
-                          configByItemId[String(modalItem.id)]?.selected_options || {}
-                        const selectedDesign = selectedValueForType(selectedOptions, modalTypedOptions.design)
-                        const scopedSizes = sizeOptionsForDesign(modalTypedOptions.size, selectedDesign)
-                        const grouped = scopedSizes.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
-                          if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
-                          acc[opt.option_group_label].push(opt)
-                          return acc
-                        }, {})
-                        return Object.entries(grouped).map(([groupLabel, opts]) => {
-                          const selectedSizeValue = selectedOptions[groupLabel] || ''
+                      {currentModalStep?.key === 'size' &&
+                        Object.entries(groupByLabel(modalProgress?.scopedSizes || [])).map(([groupLabel, opts]) => {
+                          const selectedSizeValue =
+                            modalConfig?.selected_options?.[groupLabel] || ''
                           return (
                             <div key={groupLabel} className="space-y-2">
                               <select
@@ -773,7 +1014,7 @@ export default function SignageOrderingLanding({
                                     min="1"
                                     step="0.1"
                                     placeholder="Width (cm)"
-                                    value={configByItemId[String(modalItem.id)]?.custom_size_cm?.width || ''}
+                                    value={modalConfig?.custom_size_cm?.width || ''}
                                     onChange={(e) =>
                                       setCustomSizeCm(String(modalItem.id), { width: e.target.value })
                                     }
@@ -783,7 +1024,7 @@ export default function SignageOrderingLanding({
                                     min="1"
                                     step="0.1"
                                     placeholder="Height (cm)"
-                                    value={configByItemId[String(modalItem.id)]?.custom_size_cm?.height || ''}
+                                    value={modalConfig?.custom_size_cm?.height || ''}
                                     onChange={(e) =>
                                       setCustomSizeCm(String(modalItem.id), { height: e.target.value })
                                     }
@@ -792,9 +1033,10 @@ export default function SignageOrderingLanding({
                               )}
                             </div>
                           )
-                        })
-                      })()}
+                        })}
                     </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">No design/language/size options for this item.</p>
                   )}
 
                   {Object.entries(modalTypedOptions.other).map(([groupLabel, opts]) => (
@@ -802,7 +1044,7 @@ export default function SignageOrderingLanding({
                       <label className="text-sm font-medium">{groupLabel}</label>
                       <select
                         className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm"
-                        value={configByItemId[String(modalItem.id)]?.selected_options?.[groupLabel] || ''}
+                        value={modalConfig?.selected_options?.[groupLabel] || ''}
                         onChange={(e) => setOption(String(modalItem.id), groupLabel, e.target.value)}
                       >
                         <option value="">Select...</option>
@@ -848,7 +1090,7 @@ export default function SignageOrderingLanding({
                   <div className="max-h-44 space-y-1 overflow-auto">
                     {stashpointsForOrder.map((sp) => {
                       const selectedIds =
-                        configByItemId[String(modalItem.id)]?.target_stashpoint_ids ??
+                        modalConfig?.target_stashpoint_ids ??
                         stashpointsForOrder.map((x) => x.stashpointId)
                       const checked = selectedIds.includes(sp.stashpointId)
                       return (
@@ -874,7 +1116,61 @@ export default function SignageOrderingLanding({
               )}
 
               <div className="flex justify-end">
-                <Button type="button" onClick={() => setOptionModalItemId(null)}>
+                {modalSteps.length > 0 && (
+                  <div className="mr-auto flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={optionModalStepIndex <= 0}
+                      onClick={() => setOptionModalStepIndex((idx) => Math.max(0, idx - 1))}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={
+                        ctaPulseActive &&
+                        optionModalStepIndex < modalSteps.length - 1 &&
+                        (currentModalStep?.complete ?? false)
+                          ? 'animate-pulse !border-emerald-600 !bg-emerald-500 !text-white ring-4 ring-emerald-300 shadow-lg'
+                          : undefined
+                      }
+                      disabled={
+                        optionModalStepIndex >= modalSteps.length - 1 ||
+                        (currentModalStep?.complete ?? false) === false
+                      }
+                      onClick={() =>
+                        setOptionModalStepIndex((idx) => Math.min(modalSteps.length - 1, idx + 1))
+                      }
+                    >
+                      Next
+                    </Button>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={closeOptionModalWithoutSaving}
+                  className="mr-2"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className={
+                    ctaPulseActive &&
+                    !(
+                      optionModalStepIndex < modalSteps.length - 1 &&
+                      (currentModalStep?.complete ?? false)
+                    ) &&
+                    !(modalProgress && !modalProgress.allComplete)
+                      ? 'animate-pulse !border-emerald-600 !bg-emerald-500 !text-white ring-4 ring-emerald-300 shadow-lg'
+                      : undefined
+                  }
+                  disabled={Boolean(modalProgress && !modalProgress.allComplete)}
+                  onClick={confirmOptionModal}
+                >
                   Confirm choices
                 </Button>
               </div>

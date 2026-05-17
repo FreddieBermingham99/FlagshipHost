@@ -117,9 +117,7 @@ export function buildFlagshipPropsFromMetrics(
       hostId: row.host_id ?? undefined,
       stashpointId: row.host_id ? undefined : row.stashpoint_id,
     }),
-    signageUrl: signagePublicUrl(row.stashpoint_id, {
-      hostId: row.host_id ?? undefined,
-    }),
+    signageUrl: signagePublicUrl(row.stashpoint_id),
     businessName: row.business_name,
     city: row.city,
     landmark: row.poi ?? undefined,

@@ -2,7 +2,6 @@ import 'server-only'
 
 import { findStashpointRowById } from '@/lib/flagship-business'
 import { flagshipPublicUrl } from '@/lib/flagship-site-url'
-import { shortenUrl } from '@/lib/short-link'
 import type { SignageAutomationSettings } from '@/lib/submissions-db'
 
 /**
@@ -61,7 +60,5 @@ export async function buildQrUrl(params: {
   url.searchParams.set('utm_medium', 'QR')
   if (campaign) url.searchParams.set('utm_campaign', campaign)
 
-  const longUrl = url.toString()
-  if (!params.settings.use_short_links) return longUrl
-  return shortenUrl(longUrl, `sign-${params.stashpointId}`)
+  return url.toString()
 }

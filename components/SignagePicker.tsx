@@ -15,6 +15,7 @@ type Props = {
   items: SignItem[];
   storageKey: string;
   initialSelected?: string[];
+  selectedIds?: string[];
   onChange?: (selectedIds: string[]) => void;
   quantityById?: Record<string, number>;
   maxQuantityById?: Record<string, number>;
@@ -26,33 +27,46 @@ export default function SignagePicker({
   items,
   storageKey,
   initialSelected = [],
+  selectedIds,
   onChange,
   quantityById,
   maxQuantityById,
   onIncreaseQuantity,
   onDecreaseQuantity,
 }: Props) {
+  const isControlled = selectedIds !== undefined
   const [selected, setSelected] = useState<string[]>(initialSelected);
+  const effectiveSelected = isControlled ? (selectedIds ?? []) : selected
 
   // Load persisted selection once on mount
   useEffect(() => {
+    if (isControlled) return
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) setSelected(JSON.parse(raw));
     } catch {}
-  }, [storageKey]);
+  }, [storageKey, isControlled]);
 
   // Persist & notify on change
   useEffect(() => {
+    if (isControlled) return
     try {
       localStorage.setItem(storageKey, JSON.stringify(selected));
     } catch {}
     onChange?.(selected);
-  }, [selected, storageKey, onChange]);
+  }, [selected, storageKey, onChange, isControlled]);
 
-  const isSelected = (id: string) => selected.includes(id);
-  const toggle = (id: string) =>
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const isSelected = (id: string) => effectiveSelected.includes(id);
+  const toggle = (id: string) => {
+    const next = effectiveSelected.includes(id)
+      ? effectiveSelected.filter((x) => x !== id)
+      : [...effectiveSelected, id]
+    if (isControlled) {
+      onChange?.(next)
+      return
+    }
+    setSelected(next)
+  }
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

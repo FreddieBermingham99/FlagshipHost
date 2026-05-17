@@ -37,6 +37,7 @@ type CatalogItem = {
   description: string | null
   image_url: string | null
   template_image_url?: string | null
+  signage_kind?: 'standard' | 'review'
   requires_customisation?: boolean
   requires_unique_qr?: boolean
   overlay_config?: Record<string, unknown>
@@ -149,6 +150,7 @@ export default function SignageCatalogDashboard() {
   const [imageUrl, setImageUrl] = useState('')
   const [templateImageUrl, setTemplateImageUrl] = useState('')
   const [newSupplierUrl, setNewSupplierUrl] = useState('')
+  const [newSignageKind, setNewSignageKind] = useState<'standard' | 'review'>('standard')
   const [optionTemplateOnly, setOptionTemplateOnly] = useState(false)
   const [newItemNoCustomisation, setNewItemNoCustomisation] = useState(false)
   const [maxQuantity, setMaxQuantity] = useState(1)
@@ -166,6 +168,7 @@ export default function SignageCatalogDashboard() {
   const [editItemImageUrl, setEditItemImageUrl] = useState('')
   const [editTemplateImageUrl, setEditTemplateImageUrl] = useState('')
   const [editSupplierUrl, setEditSupplierUrl] = useState('')
+  const [editSignageKind, setEditSignageKind] = useState<'standard' | 'review'>('standard')
   const [editItemMaxQuantity, setEditItemMaxQuantity] = useState(1)
   const [editItemRequiresQr, setEditItemRequiresQr] = useState(true)
   const [editNoCustomisation, setEditNoCustomisation] = useState(false)
@@ -176,6 +179,10 @@ export default function SignageCatalogDashboard() {
   const [designBundleSizesSnapshot, setDesignBundleSizesSnapshot] = useState<
     Array<{ id: number; option_name: string; option_value: string }>
   >([])
+  const [reviewCsvFileName, setReviewCsvFileName] = useState('')
+  const [reviewCsvText, setReviewCsvText] = useState('')
+  const [reviewImportBusy, setReviewImportBusy] = useState(false)
+  const [reviewImportMessage, setReviewImportMessage] = useState<string | null>(null)
   const optionParentItem = useMemo(
     () => items.find((x) => x.id === optionItemId) ?? null,
     [items, optionItemId]
@@ -206,8 +213,9 @@ export default function SignageCatalogDashboard() {
         description,
         image_url: imageUrl,
         template_image_url: templateImageUrl.trim() || null,
+        signage_kind: newSignageKind,
         requires_customisation: !newItemNoCustomisation,
-        requires_unique_qr: !newItemNoCustomisation ? false : true,
+        requires_unique_qr: newSignageKind === 'review' ? true : !newItemNoCustomisation ? false : true,
         max_quantity: Math.max(1, maxQuantity || 1),
         is_visible: true,
         supplier_url: newSupplierUrl.trim() || null,
@@ -218,6 +226,7 @@ export default function SignageCatalogDashboard() {
     setImageUrl('')
     setTemplateImageUrl('')
     setNewSupplierUrl('')
+    setNewSignageKind('standard')
     setNewItemNoCustomisation(false)
     setMaxQuantity(1)
     fetchItems()
@@ -277,6 +286,7 @@ export default function SignageCatalogDashboard() {
     setEditItemImageUrl(item.image_url || '')
     setEditTemplateImageUrl(item.template_image_url?.trim() ? item.template_image_url : '')
     setEditSupplierUrl(item.supplier_url?.trim() ? item.supplier_url : '')
+    setEditSignageKind(item.signage_kind === 'review' ? 'review' : 'standard')
     setEditItemMaxQuantity(Math.max(1, item.max_quantity || 1))
     setEditItemRequiresQr(item.requires_unique_qr !== false)
     setEditNoCustomisation(item.requires_customisation === false)
@@ -297,8 +307,9 @@ export default function SignageCatalogDashboard() {
         description: editItemDescription,
         image_url: editItemImageUrl,
         template_image_url: editTemplateImageUrl.trim(),
+        signage_kind: editSignageKind,
         requires_customisation: !editNoCustomisation,
-        requires_unique_qr: editNoCustomisation ? false : editItemRequiresQr,
+        requires_unique_qr: editSignageKind === 'review' ? true : editNoCustomisation ? false : editItemRequiresQr,
         overlay_config: overlayRectsOnlyForSave(editOverlay) as Record<string, unknown>,
         max_quantity: Math.max(1, editItemMaxQuantity || 1),
         supplier_url: editSupplierUrl.trim() || null,
@@ -673,6 +684,55 @@ export default function SignageCatalogDashboard() {
     fetchItems()
   }
 
+  const onReviewCsvFileSelected = async (file: File | null) => {
+    if (!file) {
+      setReviewCsvFileName('')
+      setReviewCsvText('')
+      return
+    }
+    try {
+      setReviewCsvFileName(file.name)
+      setReviewCsvText(await file.text())
+      setReviewImportMessage(null)
+    } catch {
+      window.alert('Could not read that CSV file.')
+      setReviewCsvFileName('')
+      setReviewCsvText('')
+    }
+  }
+
+  const importReviewCsv = async () => {
+    if (!reviewCsvText.trim()) {
+      window.alert('Choose a CSV file first.')
+      return
+    }
+    setReviewImportBusy(true)
+    setReviewImportMessage(null)
+    try {
+      const res = await fetch('/api/dashboard/signage/catalog/review-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csvText: reviewCsvText }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Import failed')
+      }
+      const parsed = Number(data.parsed) || 0
+      const upserted = Number(data.upserted) || 0
+      const cleared = Number(data.cleared) || 0
+      setReviewImportMessage(
+        `Imported ${parsed} row(s). Saved ${upserted} review link(s), cleared ${cleared} missing-link row(s).`
+      )
+      setReviewCsvText('')
+      setReviewCsvFileName('')
+    } catch (error) {
+      setReviewImportMessage(error instanceof Error ? error.message : 'Failed to import review links')
+    } finally {
+      setReviewImportBusy(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -706,6 +766,17 @@ export default function SignageCatalogDashboard() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
               <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
+            </div>
+            <div className="space-y-1 border-t border-slate-100 pt-3">
+              <Label className="text-xs font-medium text-slate-700">Signage mode</Label>
+              <select
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                value={newSignageKind}
+                onChange={(e) => setNewSignageKind(e.target.value === 'review' ? 'review' : 'standard')}
+              >
+                <option value="standard">Normal signage (default Stasher QR URL)</option>
+                <option value="review">Review signage (uses uploaded Review Link by stashpoint)</option>
+              </select>
             </div>
             <div className="space-y-1 border-t border-slate-100 pt-3">
               <Label className="text-xs font-medium text-slate-700">Supplier URL (optional)</Label>
@@ -792,6 +863,34 @@ export default function SignageCatalogDashboard() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Review signage URL upload</CardTitle>
+            <p className="text-xs text-slate-500">
+              Upload CSV with <code>Store Code</code> and <code>Review Link</code>. Blank review links are accepted and
+              treated as no-link rows (review assets will be skipped for those stashpoints).
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => onReviewCsvFileSelected(e.target.files?.[0] ?? null)}
+            />
+            {reviewCsvFileName ? (
+              <p className="text-xs text-slate-500">Loaded file: {reviewCsvFileName}</p>
+            ) : (
+              <p className="text-xs text-slate-400">No file selected</p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button type="button" onClick={importReviewCsv} disabled={reviewImportBusy}>
+                {reviewImportBusy ? 'Importing…' : 'Import review links CSV'}
+              </Button>
+              {reviewImportMessage ? <p className="text-xs text-slate-600">{reviewImportMessage}</p> : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Catalog items</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -812,6 +911,12 @@ export default function SignageCatalogDashboard() {
                       <p className="mt-1 text-xs text-slate-500">
                         Max qty per order:{' '}
                         <span className="font-semibold text-slate-700">{Math.max(1, item.max_quantity || 1)}</span>
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Mode:{' '}
+                        <span className="font-semibold text-slate-700">
+                          {item.signage_kind === 'review' ? 'Review signage' : 'Normal signage'}
+                        </span>
                       </p>
                       {item.supplier_url?.trim() ? (
                         <p className="mt-1 text-xs text-slate-500">
@@ -950,6 +1055,17 @@ export default function SignageCatalogDashboard() {
                 <Label>Description</Label>
                 <Input value={editItemDescription} onChange={(e) => setEditItemDescription(e.target.value)} />
               </div>
+              <div>
+                <Label>Signage mode</Label>
+                <select
+                  className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  value={editSignageKind}
+                  onChange={(e) => setEditSignageKind(e.target.value === 'review' ? 'review' : 'standard')}
+                >
+                  <option value="standard">Normal signage (default Stasher QR URL)</option>
+                  <option value="review">Review signage (uses uploaded Review Link by stashpoint)</option>
+                </select>
+              </div>
               <div className="space-y-2 border-t pt-4">
                 <Label>Supplier URL (optional)</Label>
                 <p className="text-[11px] text-slate-500">
@@ -1056,9 +1172,9 @@ export default function SignageCatalogDashboard() {
                   type="checkbox"
                   checked={editItemRequiresQr}
                   onChange={(e) => setEditItemRequiresQr(e.target.checked)}
-                  disabled={editNoCustomisation}
+                  disabled={editNoCustomisation || editSignageKind === 'review'}
                 />
-                Requires unique QR (only when customisation is on)
+                Requires unique QR (always on for review signage)
               </label>
               <div className="flex justify-end gap-2 border-t pt-4">
                 <Button type="button" variant="ghost" onClick={closeEditItemModal}>

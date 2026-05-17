@@ -70,6 +70,12 @@ export async function PATCH(
       name: typeof patchBody.name === 'string' ? patchBody.name : undefined,
       description: typeof patchBody.description === 'string' ? patchBody.description : undefined,
       image_url: typeof patchBody.image_url === 'string' ? patchBody.image_url : undefined,
+      signage_kind:
+        patchBody.signage_kind === 'review'
+          ? 'review'
+          : patchBody.signage_kind === 'standard'
+            ? 'standard'
+            : undefined,
       template_image_url:
         'template_image_url' in patchBody
           ? patchBody.template_image_url == null

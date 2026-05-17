@@ -46,7 +46,7 @@ export default function SignageAutomationSettingsDashboard() {
       const res = await fetch('/api/dashboard/signage/automation')
       const data = await res.json()
       if (!res.ok) return
-      setSettings(data.settings || EMPTY)
+      setSettings({ ...(data.settings || EMPTY), use_short_links: false })
       setDigestRecipientsText((data.settings?.digest_recipients || []).join('\n'))
     })()
   }, [])
@@ -59,7 +59,7 @@ export default function SignageAutomationSettingsDashboard() {
     const res = await fetch('/api/dashboard/signage/automation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...settings, digest_recipients }),
+      body: JSON.stringify({ ...settings, use_short_links: false, digest_recipients }),
     })
     const data = await res.json()
     setMessage(res.ok ? 'Saved settings.' : data.error || 'Failed to save.')
@@ -102,10 +102,9 @@ export default function SignageAutomationSettingsDashboard() {
                 <code>[stashpointid]</code>, <code>[signagetype]</code>.
               </p>
             </div>
-            <label className="sm:col-span-2 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={settings.use_short_links} onChange={(e) => setSettings((s) => ({ ...s, use_short_links: e.target.checked }))} />
-              Use short links for QR destinations
-            </label>
+            <p className="sm:col-span-2 text-xs text-slate-600">
+              QR destination URL shortening is disabled. Generated QR links always use full URLs.
+            </p>
           </CardContent>
         </Card>
         <Card>

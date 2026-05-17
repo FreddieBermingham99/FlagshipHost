@@ -37,6 +37,7 @@ export async function POST(req: Request) {
       description?: string
       image_url?: string
       template_image_url?: string | null
+      signage_kind?: 'standard' | 'review'
       requires_customisation?: boolean
       requires_unique_qr?: boolean
       overlay_config?: Record<string, unknown>
@@ -49,15 +50,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 })
     }
     const requiresCustomisation = body.requires_customisation ?? true
+    const signageKind = body.signage_kind === 'review' ? 'review' : 'standard'
     const item = await createSignageCatalogItem({
       name: String(body.name).trim(),
       description: body.description ?? null,
       image_url: body.image_url ?? null,
       template_image_url:
         typeof body.template_image_url === 'string' ? body.template_image_url.trim() || null : null,
+      signage_kind: signageKind,
       requires_customisation: requiresCustomisation,
       requires_unique_qr:
-        typeof body.requires_unique_qr === 'boolean'
+        signageKind === 'review'
+          ? true
+          : typeof body.requires_unique_qr === 'boolean'
           ? body.requires_unique_qr
           : requiresCustomisation
             ? true

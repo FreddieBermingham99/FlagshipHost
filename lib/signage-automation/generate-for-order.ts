@@ -2,6 +2,7 @@ import 'server-only'
 
 import {
   getSignageOrderById,
+  getSignageReviewLink,
   listSignageCatalogItems,
   type SignageCatalogItem,
   type SignageCatalogItemWithOptions,
@@ -123,15 +124,32 @@ export async function generateSignageAssetsForOrder(
       if (!requiresCustomisation) {
         png = await passthroughTemplateAsPng(templateUrl)
       } else {
-        const qrUrl =
-          catalogItem?.requires_unique_qr !== false
-            ? await buildQrUrl({
-                stashpointId,
-                slug: stashpointId,
-                signageType: item.item_name_snapshot,
-                settings,
+        let qrUrl: string | undefined
+        const shouldGenerateQr =
+          catalogItem?.signage_kind === 'review' || catalogItem?.requires_unique_qr !== false
+        if (shouldGenerateQr) {
+          if (catalogItem?.signage_kind === 'review') {
+            const reviewLink = await getSignageReviewLink(stashpointId)
+            if (!reviewLink) {
+              const noReviewLinkMessage =
+                'No review URL uploaded for this stashpoint; asset not generated'
+              hadErrors = true
+              errorDetails.push(`${item.item_name_snapshot}: ${noReviewLinkMessage}`)
+              await updateSignageOrderItemAsset(item.id, {
+                asset_error: noReviewLinkMessage,
               })
-            : undefined
+              continue
+            }
+            qrUrl = reviewLink
+          } else {
+            qrUrl = await buildQrUrl({
+              stashpointId,
+              slug: stashpointId,
+              signageType: item.item_name_snapshot,
+              settings,
+            })
+          }
+        }
         png = await renderSignagePng({
           templateUrl,
           qrUrl,
