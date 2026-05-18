@@ -875,7 +875,7 @@ export default function SignageOrderingLanding({
       {modalItem && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-          onClick={closeOptionModalWithoutSaving}
+          onClick={() => closeOptionModalWithoutSaving()}
         >
           <Card
             className="max-h-[88vh] w-full max-w-2xl overflow-y-auto"
@@ -1151,7 +1151,7 @@ export default function SignageOrderingLanding({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={closeOptionModalWithoutSaving}
+                  onClick={() => closeOptionModalWithoutSaving()}
                   className="mr-2"
                 >
                   Cancel
