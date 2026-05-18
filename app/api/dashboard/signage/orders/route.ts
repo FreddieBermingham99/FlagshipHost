@@ -6,10 +6,12 @@ import {
   isSubmissionsDbConfigured,
   listSignageOrderIds,
   listSignageOrders,
+  updateSignageOrdersStatus,
   type SignageOrderFilters,
 } from '@/lib/submissions-db'
 
 export const dynamic = 'force-dynamic'
+const VALID_STATUSES = ['pending', 'accepted', 'fulfilled', 'rejected']
 
 export async function GET(req: Request) {
   const authErr = requireDashboardSessionApi()
@@ -88,6 +90,39 @@ export async function DELETE(req: Request) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Failed to delete orders' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PATCH(req: Request) {
+  const authErr = requireDashboardSessionApi()
+  if (authErr) return authErr
+  if (!isSubmissionsDbConfigured()) {
+    return NextResponse.json({ error: 'Submissions DB not configured' }, { status: 503 })
+  }
+  try {
+    const body = (await req.json()) as { ids?: unknown; status?: unknown }
+    const rawIds = Array.isArray(body?.ids) ? body.ids : []
+    const ids = rawIds
+      .map((x) => Number(x))
+      .filter((x) => Number.isFinite(x) && x > 0)
+      .map((x) => Math.floor(x))
+    const status = typeof body?.status === 'string' ? body.status.trim() : ''
+    if (ids.length === 0) {
+      return NextResponse.json({ error: 'ids must be a non-empty array of positive integers' }, { status: 400 })
+    }
+    if (!VALID_STATUSES.includes(status)) {
+      return NextResponse.json(
+        { error: `status must be one of: ${VALID_STATUSES.join(', ')}` },
+        { status: 400 }
+      )
+    }
+    const updated = await updateSignageOrdersStatus(ids, status)
+    return NextResponse.json({ ok: true, updated, status })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Failed to bulk update orders' },
       { status: 500 }
     )
   }

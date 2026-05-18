@@ -1504,6 +1504,21 @@ export async function updateSignageOrderStatus(
   })
 }
 
+export async function updateSignageOrdersStatus(ids: number[], status: string): Promise<number> {
+  const uniqueIds = [...new Set(ids.map((id) => Math.floor(id)).filter((id) => Number.isFinite(id) && id > 0))]
+  if (uniqueIds.length === 0) return 0
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query(
+      `UPDATE signage_orders
+       SET status = $1, updated_at = now()
+       WHERE id = ANY($2::int[])`,
+      [status, uniqueIds]
+    )
+    return res.rowCount ?? 0
+  })
+}
+
 export async function updateSignageOrderAssetStatus(
   id: number,
   status: 'not_started' | 'in_progress' | 'completed' | 'failed'

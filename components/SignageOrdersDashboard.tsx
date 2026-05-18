@@ -160,6 +160,8 @@ export default function SignageOrdersDashboard() {
   const [fastTrackEmail, setFastTrackEmail] = useState('')
   const [fastTrackBusy, setFastTrackBusy] = useState(false)
   const [fastTrackMessage, setFastTrackMessage] = useState<string | null>(null)
+  const [bulkStatus, setBulkStatus] = useState('fulfilled')
+  const [bulkStatusBusy, setBulkStatusBusy] = useState(false)
   const [allMatchingSelected, setAllMatchingSelected] = useState(false)
   const [allMatchingBusy, setAllMatchingBusy] = useState(false)
 
@@ -290,25 +292,17 @@ export default function SignageOrdersDashboard() {
     if (orderIds.length === 0) return
     setFastTrackBusy(true)
     try {
-      const batches: number[][] = []
-      for (let i = 0; i < orderIds.length; i += 15) {
-        batches.push(orderIds.slice(i, i + 15))
+      const res = await fetch('/api/dashboard/signage/orders/fast-track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds, to }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        window.alert(typeof data.error === 'string' ? data.error : 'Fast-track failed')
+        return
       }
-      for (const batch of batches) {
-        const res = await fetch('/api/dashboard/signage/orders/fast-track', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderIds: batch, to }),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          window.alert(typeof data.error === 'string' ? data.error : 'Fast-track failed')
-          return
-        }
-      }
-      setFastTrackMessage(
-        `Emailed ${to} with links for ${orderIds.length} order(s) across ${batches.length} batch(es).`
-      )
+      setFastTrackMessage(`Emailed ${to} with grouped links for ${orderIds.length} order(s).`)
       fetchOrders()
       for (const id of orderIds) {
         if (selected?.id === id) void openOrder(id)
@@ -407,6 +401,37 @@ export default function SignageOrdersDashboard() {
     setSelectedIds(new Set())
     setSelected(null)
     fetchOrders()
+  }
+
+  const bulkUpdateStatus = async () => {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    if (!bulkStatus) {
+      window.alert('Select a status first.')
+      return
+    }
+    const chosen = STATUS_OPTIONS.find((s) => s.value === bulkStatus)?.label || bulkStatus
+    const ok = window.confirm(`Update ${ids.length} selected order(s) to "${chosen}"?`)
+    if (!ok) return
+    setBulkStatusBusy(true)
+    setFastTrackMessage(null)
+    try {
+      const res = await fetch('/api/dashboard/signage/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, status: bulkStatus }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        window.alert(typeof data.error === 'string' ? data.error : 'Failed to bulk update status')
+        return
+      }
+      setFastTrackMessage(`Updated ${data.updated || ids.length} order(s) to ${chosen}.`)
+      fetchOrders()
+      if (selected && ids.includes(selected.id)) void openOrder(selected.id)
+    } finally {
+      setBulkStatusBusy(false)
+    }
   }
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
@@ -600,6 +625,31 @@ export default function SignageOrdersDashboard() {
                   />
                 </div>
                 <div className="flex gap-2">
+                  <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1">
+                    <Label htmlFor="bulk-status-select" className="text-xs text-slate-600">
+                      Set status
+                    </Label>
+                    <select
+                      id="bulk-status-select"
+                      className="h-8 rounded border border-slate-200 px-2 text-xs"
+                      value={bulkStatus}
+                      onChange={(e) => setBulkStatus(e.target.value)}
+                    >
+                      {STATUS_OPTIONS.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={selectedIds.size === 0 || bulkStatusBusy}
+                      onClick={() => void bulkUpdateStatus()}
+                    >
+                      {bulkStatusBusy ? 'Updating…' : `Apply (${selectedIds.size})`}
+                    </Button>
+                  </div>
                   <Button
                     size="sm"
                     variant="default"

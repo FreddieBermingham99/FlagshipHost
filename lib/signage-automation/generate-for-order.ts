@@ -71,27 +71,70 @@ function isA5Selection(sizeValue: string): boolean {
   return v === 'a5' || v.includes(' a5') || v.startsWith('a5 ') || v.includes('a5')
 }
 
+function firstSelectedValue(v: string | string[] | undefined): string {
+  if (!v) return ''
+  const out = Array.isArray(v) ? v[0] : v
+  return String(out || '').trim()
+}
+
+export function buildSignageVariantFolderLabel(params: {
+  catalogName: string
+  selectedOptions: Record<string, string | string[]>
+  fallbackSize?: string
+}): string {
+  const parts: string[] = [params.catalogName.trim() || 'signage']
+  const language = firstSelectedValue(params.selectedOptions.__variation_language)
+  const size = firstSelectedValue(params.selectedOptions.__variation_size) || String(params.fallbackSize || '').trim()
+  if (language) parts.push(language)
+  if (size) parts.push(size)
+  return parts.join(' - ')
+}
+
+export type GenerateSignageItemUploadInfo = {
+  orderItemId: number
+  itemName: string
+  folderId: string
+  folderLabel?: string
+  fileId: string
+  fileLink: string
+}
+
+export type GenerateSignageAssetsResult = {
+  ok: boolean
+  error?: string
+  itemUploads: GenerateSignageItemUploadInfo[]
+}
+
 export type GenerateSignageAssetsOptions = {
   /** When set, PNGs upload here instead of the automation root folder. */
   uploadFolderId?: string
+  resolveUploadFolderId?: (ctx: {
+    orderId: number
+    orderItemId: number
+    itemNameSnapshot: string
+    catalogItem: SignageCatalogItemWithOptions | undefined
+    selectedOptions: Record<string, string | string[]>
+    selectedSizeValue: string
+  }) => Promise<{ folderId: string; folderLabel?: string } | string>
 }
 
 export async function generateSignageAssetsForOrder(
   orderId: number,
   options?: GenerateSignageAssetsOptions
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<GenerateSignageAssetsResult> {
   const order = await getSignageOrderById(orderId)
-  if (!order) return { ok: false, error: 'Order not found' }
+  if (!order) return { ok: false, error: 'Order not found', itemUploads: [] }
   const stashpointId = String(order.stashpoint_id || '').trim()
-  if (!stashpointId) return { ok: false, error: 'Order has no stashpoint_id' }
+  if (!stashpointId) return { ok: false, error: 'Order has no stashpoint_id', itemUploads: [] }
   const settings = await getAutomationConfig()
   const rootFolder = String(settings.google_drive_folder_id || '').trim()
   const uploadFolderId = String(options?.uploadFolderId ?? '').trim() || rootFolder
-  if (!uploadFolderId) return { ok: false, error: 'Google Drive folder is not configured' }
+  if (!uploadFolderId) return { ok: false, error: 'Google Drive folder is not configured', itemUploads: [] }
   const catalog = await listSignageCatalogItems(false)
   const byId = new Map<number, SignageCatalogItemWithOptions>(catalog.map((c) => [c.id, c]))
   let hadErrors = false
   const errorDetails: string[] = []
+  const itemUploads: GenerateSignageItemUploadInfo[] = []
 
   await updateSignageOrderAssetStatus(order.id, 'in_progress')
   for (const item of order.items) {
@@ -166,15 +209,42 @@ export async function generateSignageAssetsForOrder(
       if (reviewDefaultA5 || isA5Selection(selectedSizeValue)) {
         png = await renderA5TwoUpOnA4LikeSheet(png)
       }
+      let targetFolder = { folderId: uploadFolderId, folderLabel: undefined as string | undefined }
+      if (options?.resolveUploadFolderId) {
+        const resolved = await options.resolveUploadFolderId({
+          orderId: order.id,
+          orderItemId: item.id,
+          itemNameSnapshot: item.item_name_snapshot,
+          catalogItem,
+          selectedOptions: item.selected_options ?? {},
+          selectedSizeValue,
+        })
+        if (typeof resolved === 'string') {
+          targetFolder = { folderId: resolved, folderLabel: undefined }
+        } else {
+          targetFolder = {
+            folderId: String(resolved.folderId || '').trim() || uploadFolderId,
+            folderLabel: resolved.folderLabel?.trim() || undefined,
+          }
+        }
+      }
       const uploaded = await uploadSignagePngToDrive({
         fileNameBase: `${stashpointId}-${item.item_name_snapshot}`,
         pngBuffer: png,
-        folderId: uploadFolderId,
+        folderId: targetFolder.folderId,
       })
       await updateSignageOrderItemAsset(item.id, {
         generated_asset_drive_file_id: uploaded.fileId,
         generated_asset_link: uploaded.webViewLink,
         asset_error: null,
+      })
+      itemUploads.push({
+        orderItemId: item.id,
+        itemName: item.item_name_snapshot,
+        folderId: targetFolder.folderId,
+        folderLabel: targetFolder.folderLabel,
+        fileId: uploaded.fileId,
+        fileLink: uploaded.webViewLink,
       })
     } catch (error) {
       hadErrors = true
@@ -194,13 +264,14 @@ export async function generateSignageAssetsForOrder(
     }
   }
   await updateSignageOrderAssetStatus(order.id, hadErrors ? 'failed' : 'completed')
-  if (!hadErrors) return { ok: true }
+  if (!hadErrors) return { ok: true, itemUploads }
   return {
     ok: false,
     error:
       errorDetails.length > 0
         ? errorDetails.slice(0, 5).join(' | ')
         : 'One or more assets failed',
+    itemUploads,
   }
 }
 

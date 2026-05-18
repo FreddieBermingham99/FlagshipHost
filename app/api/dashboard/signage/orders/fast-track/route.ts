@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireDashboardSessionApi } from '@/lib/require-dashboard-session'
 import { sendCampaignEmail } from '@/lib/email/resend-campaign'
-import { generateSignageAssetsForOrder } from '@/lib/signage-automation/generate-for-order'
+import { ensureDriveSubfolder } from '@/lib/signage-automation/drive-upload'
+import { getAutomationConfig } from '@/lib/signage-automation/config'
+import {
+  buildSignageVariantFolderLabel,
+  generateSignageAssetsForOrder,
+} from '@/lib/signage-automation/generate-for-order'
 import {
   aggregateCustomisedSupplierLinks,
   aggregateNonUniqueSignageGrouped,
@@ -19,7 +24,7 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-const MAX_ORDERS = 15
+const MAX_ORDERS = 500
 
 function escapeHtml(s: string): string {
   return s
@@ -115,29 +120,57 @@ export async function POST(req: Request) {
     contactEmail?: string
     contactPhone?: string | null
     ordered?: string
-    assets: Array<{ itemName: string; link: string | null; error: string | null }>
   }> = []
 
   const ordersForAgg: SignageOrderWithItems[] = []
+  const automation = await getAutomationConfig()
+  const rootFolderId = String(automation.google_drive_folder_id || '').trim()
+  const runLabel = `fast-track-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`
+  let runFolderId = rootFolderId
+  let runFolderLink = ''
+  if (rootFolderId) {
+    const runFolder = await ensureDriveSubfolder({
+      parentFolderId: rootFolderId,
+      folderName: runLabel,
+    })
+    runFolderId = runFolder.folderId || rootFolderId
+    runFolderLink = runFolder.webViewLink || ''
+  }
+  const folderByKey = new Map<string, { label: string; folderId: string; link: string }>()
 
   for (const orderId of orderIds) {
-    const gen = await generateSignageAssetsForOrder(orderId)
+    const gen = await generateSignageAssetsForOrder(orderId, {
+      uploadFolderId: runFolderId || undefined,
+      resolveUploadFolderId: async (ctx) => {
+        if (!runFolderId) return { folderId: '', folderLabel: undefined }
+        const catalogName = ctx.catalogItem?.name || ctx.itemNameSnapshot
+        const label = buildSignageVariantFolderLabel({
+          catalogName,
+          selectedOptions: ctx.selectedOptions,
+          fallbackSize: ctx.selectedSizeValue,
+        })
+        const key = label.toLowerCase()
+        const cached = folderByKey.get(key)
+        if (cached) return { folderId: cached.folderId, folderLabel: cached.label }
+        const created = await ensureDriveSubfolder({
+          parentFolderId: runFolderId,
+          folderName: label,
+        })
+        const next = { label, folderId: created.folderId, link: created.webViewLink || '' }
+        folderByKey.set(key, next)
+        return { folderId: next.folderId, folderLabel: next.label }
+      },
+    })
     const order = await getSignageOrderById(orderId)
     if (!order) {
       results.push({
         orderId,
         ok: false,
         error: 'Order not found after generation',
-        assets: [],
       })
       continue
     }
     ordersForAgg.push(order)
-    const assets = order.items.map((it) => ({
-      itemName: it.item_name_snapshot,
-      link: it.generated_asset_link?.trim() || null,
-      error: it.asset_error?.trim() || null,
-    }))
     const hn = hostNameCells(order.contact_name)
     results.push({
       orderId,
@@ -153,7 +186,6 @@ export async function POST(req: Request) {
       contactEmail: order.contact_email,
       contactPhone: order.contact_phone,
       ordered: orderedLineItemSummary(order),
-      assets,
     })
   }
 
@@ -173,30 +205,31 @@ export async function POST(req: Request) {
       const em = escapeHtml(r.contactEmail || '—')
       const ph = escapeHtml(r.contactPhone || '—')
       const ord = escapeHtml(r.ordered || '—')
-      const assetLines =
-        r.assets.length === 0
-          ? '—'
-          : r.assets
-              .map((a) => {
-                const name = escapeHtml(a.itemName)
-                if (a.link) {
-                  return `${name}: <a href="${escapeHtml(a.link)}">${escapeHtml(a.link)}</a>`
-                }
-                if (a.error) {
-                  return `${name}: <em>${escapeHtml(a.error)}</em>`
-                }
-                return `${name}: —`
-              })
-              .join('<br/>')
-      return `<tr><td>${r.orderId}</td><td>${sp}</td><td>${biz}</td><td>${city}</td><td>${addr}</td><td>${hf}</td><td>${hl}</td><td>${em}</td><td>${ph}</td><td>${ord}</td><td>${status}</td><td>${assetLines}</td></tr>`
+      return `<tr><td>${r.orderId}</td><td>${sp}</td><td>${biz}</td><td>${city}</td><td>${addr}</td><td>${hf}</td><td>${hl}</td><td>${em}</td><td>${ph}</td><td>${ord}</td><td>${status}</td></tr>`
     })
     .join('')
 
+  const groupedFolders = [...folderByKey.values()].sort((a, b) => a.label.localeCompare(b.label))
+  const foldersHtml =
+    groupedFolders.length === 0
+      ? '<p><em>No grouped folder links were generated.</em></p>'
+      : `<h3>Generated folders (by signage type + variation)</h3><ul>${groupedFolders
+          .map(
+            (f) =>
+              f.link
+                ? `<li>${escapeHtml(f.label)}: <a href="${escapeHtml(f.link)}">${escapeHtml(f.link)}</a></li>`
+                : `<li>${escapeHtml(f.label)}: <em>link unavailable</em></li>`
+          )
+          .join('')}</ul>`
+  const foldersText =
+    groupedFolders.length === 0
+      ? 'Generated folders (by signage type + variation): none'
+      : `Generated folders (by signage type + variation):\n${groupedFolders
+          .map((f) => `- ${f.label}: ${f.link || '(missing link)'}`)
+          .join('\n')}`
+
   const text = results
     .map((r) => {
-      const lines = r.assets
-        .map((a) => `  - ${a.itemName}: ${a.link || a.error || '—'}`)
-        .join('\n')
       const header = [
         `Order #${r.orderId}`,
         `Stashpoint: ${r.stashpointId || '—'}`,
@@ -209,7 +242,7 @@ export async function POST(req: Request) {
         `Ordered: ${r.ordered || '—'}`,
         `Status: ${r.ok ? 'OK' : `FAILED: ${r.error || ''}`}`,
       ].join('\n')
-      return `${header}\nAssets:\n${lines}`
+      return header
     })
     .join('\n\n')
 
@@ -237,16 +270,20 @@ export async function POST(req: Request) {
 
   const html = `<h2>Signage assets (fast-track)</h2>
 ${nonUniqueHtml}
-<p>Generated ${results.length} order(s). Open each Google Drive link to download PNGs.</p>
+<p>Generated ${results.length} order(s).</p>
+${runFolderLink ? `<p><strong>Run folder:</strong> <a href="${escapeHtml(runFolderLink)}">${escapeHtml(runFolderLink)}</a></p>` : ''}
 <table border="1" cellpadding="8" cellspacing="0">
-<thead><tr><th>Order</th><th>Stashpoint ID</th><th>Business</th><th>City / country</th><th>Address</th><th>Host first</th><th>Host last</th><th>Email</th><th>Phone</th><th>Ordered</th><th>Status</th><th>Assets</th></tr></thead>
+<thead><tr><th>Order</th><th>Stashpoint ID</th><th>Business</th><th>City / country</th><th>Address</th><th>Host first</th><th>Host last</th><th>Email</th><th>Phone</th><th>Ordered</th><th>Status</th></tr></thead>
 <tbody>${htmlRows}</tbody>
-</table>`
+</table>
+${foldersHtml}`
 
   const emailResult = await sendCampaignEmail({
     to,
     subject: `Signage fast-track: ${results.length} order(s)`,
-    text: nonUniqueText + text,
+    text: [nonUniqueText, runFolderLink ? `Run folder: ${runFolderLink}\n` : '', text, '\n', foldersText]
+      .filter(Boolean)
+      .join('\n'),
     html,
   })
   if (!emailResult.ok) {
