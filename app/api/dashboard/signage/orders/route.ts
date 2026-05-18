@@ -4,6 +4,7 @@ import {
   deleteSignageOrders,
   getDistinctSignageOrderCities,
   isSubmissionsDbConfigured,
+  listSignageOrderIds,
   listSignageOrders,
   type SignageOrderFilters,
 } from '@/lib/submissions-db'
@@ -38,6 +39,14 @@ export async function GET(req: Request) {
     if (page) filters.page = parseInt(page, 10)
     const limit = url.searchParams.get('limit')
     if (limit) filters.limit = parseInt(limit, 10)
+    const idsOnly = ['1', 'true', 'yes'].includes(
+      String(url.searchParams.get('ids_only') || '').toLowerCase()
+    )
+
+    if (idsOnly) {
+      const ids = await listSignageOrderIds(filters)
+      return NextResponse.json({ ids, total: ids.length })
+    }
 
     const [result, cities] = await Promise.all([
       listSignageOrders(filters),

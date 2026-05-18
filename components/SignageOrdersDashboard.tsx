@@ -160,6 +160,31 @@ export default function SignageOrdersDashboard() {
   const [fastTrackEmail, setFastTrackEmail] = useState('')
   const [fastTrackBusy, setFastTrackBusy] = useState(false)
   const [fastTrackMessage, setFastTrackMessage] = useState<string | null>(null)
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false)
+  const [allMatchingBusy, setAllMatchingBusy] = useState(false)
+
+  const buildQueryParams = useCallback(
+    (opts?: { includePage?: boolean; includeLimit?: boolean; idsOnly?: boolean }) => {
+      const includePage = opts?.includePage ?? true
+      const includeLimit = opts?.includeLimit ?? true
+      const idsOnly = opts?.idsOnly ?? false
+      const params = new URLSearchParams()
+      if (filters.search) params.set('search', filters.search)
+      if (filters.status.length) params.set('status', filters.status.join(','))
+      if (filters.city) params.set('city', filters.city)
+      if (filters.business_name) params.set('business_name', filters.business_name)
+      if (filters.stashpoint_id) params.set('stashpoint_id', filters.stashpoint_id)
+      if (filters.submission_batch_id.trim()) {
+        params.set('submission_batch_id', filters.submission_batch_id.trim())
+      }
+      if (filters.source.length) params.set('source', filters.source.join(','))
+      if (includePage) params.set('page', String(page))
+      if (includeLimit) params.set('limit', String(limit))
+      if (idsOnly) params.set('ids_only', '1')
+      return params
+    },
+    [filters, page]
+  )
 
   useEffect(() => {
     try {
@@ -184,18 +209,7 @@ export default function SignageOrdersDashboard() {
     setLoading(true)
     setLoadError(null)
     try {
-      const params = new URLSearchParams()
-      if (filters.search) params.set('search', filters.search)
-      if (filters.status.length) params.set('status', filters.status.join(','))
-      if (filters.city) params.set('city', filters.city)
-      if (filters.business_name) params.set('business_name', filters.business_name)
-      if (filters.stashpoint_id) params.set('stashpoint_id', filters.stashpoint_id)
-      if (filters.submission_batch_id.trim()) {
-        params.set('submission_batch_id', filters.submission_batch_id.trim())
-      }
-      if (filters.source.length) params.set('source', filters.source.join(','))
-      params.set('page', String(page))
-      params.set('limit', String(limit))
+      const params = buildQueryParams({ includePage: true, includeLimit: true })
 
       const res = await fetch(`/api/dashboard/signage/orders?${params.toString()}`)
       const data = await res.json().catch(() => ({}))
@@ -212,22 +226,17 @@ export default function SignageOrdersDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [filters, page])
+  }, [buildQueryParams])
 
   useEffect(() => {
     fetchOrders()
   }, [fetchOrders])
 
   useEffect(() => {
-    setSelectedIds((prev) => {
-      const idsOnPage = new Set(orders.map((o) => o.id))
-      const next = new Set<number>()
-      for (const id of prev) {
-        if (idsOnPage.has(id)) next.add(id)
-      }
-      return next
-    })
-  }, [orders])
+    setSelectedIds(new Set())
+    setAllMatchingSelected(false)
+    setFastTrackMessage(null)
+  }, [filters])
 
   const toggleStatusFilter = (val: string) => {
     setPage(1)
@@ -281,17 +290,25 @@ export default function SignageOrdersDashboard() {
     if (orderIds.length === 0) return
     setFastTrackBusy(true)
     try {
-      const res = await fetch('/api/dashboard/signage/orders/fast-track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderIds, to }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        window.alert(typeof data.error === 'string' ? data.error : 'Fast-track failed')
-        return
+      const batches: number[][] = []
+      for (let i = 0; i < orderIds.length; i += 15) {
+        batches.push(orderIds.slice(i, i + 15))
       }
-      setFastTrackMessage(`Emailed ${to} with links for ${orderIds.length} order(s).`)
+      for (const batch of batches) {
+        const res = await fetch('/api/dashboard/signage/orders/fast-track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderIds: batch, to }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          window.alert(typeof data.error === 'string' ? data.error : 'Fast-track failed')
+          return
+        }
+      }
+      setFastTrackMessage(
+        `Emailed ${to} with links for ${orderIds.length} order(s) across ${batches.length} batch(es).`
+      )
       fetchOrders()
       for (const id of orderIds) {
         if (selected?.id === id) void openOrder(id)
@@ -331,6 +348,7 @@ export default function SignageOrdersDashboard() {
       else next.delete(id)
       return next
     })
+    setAllMatchingSelected(false)
   }
 
   const toggleAllVisible = (checked: boolean) => {
@@ -343,6 +361,32 @@ export default function SignageOrdersDashboard() {
       }
       return next
     })
+    if (!checked) setAllMatchingSelected(false)
+  }
+
+  const toggleAllMatching = async (checked: boolean) => {
+    if (!checked) {
+      setSelectedIds(new Set())
+      setAllMatchingSelected(false)
+      return
+    }
+    setAllMatchingBusy(true)
+    try {
+      const params = buildQueryParams({ includePage: false, includeLimit: false, idsOnly: true })
+      const res = await fetch(`/api/dashboard/signage/orders?${params.toString()}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        window.alert(typeof data.error === 'string' ? data.error : 'Failed to select all matching orders')
+        return
+      }
+      const ids = Array.isArray(data.ids)
+        ? data.ids.map((x: unknown) => Number(x)).filter((x: number) => Number.isFinite(x) && x > 0)
+        : []
+      setSelectedIds(new Set(ids))
+      setAllMatchingSelected(ids.length > 0)
+    } finally {
+      setAllMatchingBusy(false)
+    }
   }
 
   const bulkDeleteOrders = async () => {
@@ -518,15 +562,28 @@ export default function SignageOrdersDashboard() {
             )}
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <label className="inline-flex items-center gap-2 text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={(e) => toggleAllVisible(e.target.checked)}
-                  disabled={orders.length === 0}
-                />
-                Select all visible ({orders.length})
-              </label>
+              <div className="flex flex-col gap-1.5">
+                <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={(e) => toggleAllVisible(e.target.checked)}
+                    disabled={orders.length === 0}
+                  />
+                  Select all visible ({orders.length})
+                </label>
+                <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={allMatchingSelected}
+                    onChange={(e) => {
+                      void toggleAllMatching(e.target.checked)
+                    }}
+                    disabled={total === 0 || allMatchingBusy}
+                  />
+                  {allMatchingBusy ? 'Selecting all matching…' : `Select all matching filters (${total})`}
+                </label>
+              </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <div className="space-y-1 sm:min-w-[220px]">
                   <Label htmlFor="signage-fast-track-email" className="text-xs text-slate-600">

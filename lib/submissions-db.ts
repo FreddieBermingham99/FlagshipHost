@@ -1179,6 +1179,54 @@ export type SignageOrderFilters = {
   limit?: number
 }
 
+function buildSignageOrderWhere(filters: SignageOrderFilters = {}): { where: string; params: unknown[] } {
+  const conditions: string[] = []
+  const params: unknown[] = []
+  let i = 1
+
+  if (filters.status && filters.status.length > 0) {
+    conditions.push(`status = ANY($${i}::text[])`)
+    params.push(filters.status)
+    i++
+  }
+  if (filters.stashpoint_id) {
+    conditions.push(`stashpoint_id = $${i}`)
+    params.push(filters.stashpoint_id)
+    i++
+  }
+  if (filters.business_name) {
+    conditions.push(`business_name ILIKE $${i}`)
+    params.push(`%${filters.business_name}%`)
+    i++
+  }
+  if (filters.city) {
+    conditions.push(`LOWER(city) = LOWER($${i})`)
+    params.push(filters.city)
+    i++
+  }
+  if (filters.source && filters.source.length > 0) {
+    conditions.push(`source = ANY($${i}::text[])`)
+    params.push(filters.source)
+    i++
+  }
+  if (filters.submission_batch_id?.trim()) {
+    conditions.push(`submission_batch_id = $${i}`)
+    params.push(filters.submission_batch_id.trim())
+    i++
+  }
+  if (filters.search) {
+    conditions.push(
+      `(business_name ILIKE $${i} OR contact_name ILIKE $${i} OR contact_email ILIKE $${i} OR address_city ILIKE $${i})`
+    )
+    params.push(`%${filters.search}%`)
+    i++
+  }
+  return {
+    where: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
+    params,
+  }
+}
+
 export async function createSignageOrder(data: SignageOrderInsert): Promise<SignageOrderWithItems> {
   await ensureTable()
   return withClient(async (c) => {
@@ -1383,49 +1431,7 @@ export async function listSignageOrders(
   filters: SignageOrderFilters = {}
 ): Promise<{ rows: SignageOrderRow[]; total: number }> {
   await ensureTable()
-  const conditions: string[] = []
-  const params: unknown[] = []
-  let i = 1
-
-  if (filters.status && filters.status.length > 0) {
-    conditions.push(`status = ANY($${i}::text[])`)
-    params.push(filters.status)
-    i++
-  }
-  if (filters.stashpoint_id) {
-    conditions.push(`stashpoint_id = $${i}`)
-    params.push(filters.stashpoint_id)
-    i++
-  }
-  if (filters.business_name) {
-    conditions.push(`business_name ILIKE $${i}`)
-    params.push(`%${filters.business_name}%`)
-    i++
-  }
-  if (filters.city) {
-    conditions.push(`LOWER(city) = LOWER($${i})`)
-    params.push(filters.city)
-    i++
-  }
-  if (filters.source && filters.source.length > 0) {
-    conditions.push(`source = ANY($${i}::text[])`)
-    params.push(filters.source)
-    i++
-  }
-  if (filters.submission_batch_id?.trim()) {
-    conditions.push(`submission_batch_id = $${i}`)
-    params.push(filters.submission_batch_id.trim())
-    i++
-  }
-  if (filters.search) {
-    conditions.push(
-      `(business_name ILIKE $${i} OR contact_name ILIKE $${i} OR contact_email ILIKE $${i} OR address_city ILIKE $${i})`
-    )
-    params.push(`%${filters.search}%`)
-    i++
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  const { where, params } = buildSignageOrderWhere(filters)
   const rawLimit = filters.limit ?? 50
   const rawPage = filters.page ?? 1
   const limit = Math.min(Math.max(1, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50), 200)
@@ -1439,7 +1445,9 @@ export async function listSignageOrders(
     )
     const total = parseInt(countRes.rows[0].count, 10)
     const rowsRes = await c.query<SignageOrderRow>(
-      `SELECT * FROM signage_orders ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+      `SELECT * FROM signage_orders ${where} ORDER BY created_at DESC LIMIT $${
+        params.length + 1
+      } OFFSET $${params.length + 2}`,
       [...params, limit, offset]
     )
     const rows = rowsRes.rows.map((r) => ({
@@ -1448,6 +1456,18 @@ export async function listSignageOrders(
       submission_batch_id: r.submission_batch_id ?? null,
     }))
     return { rows, total }
+  })
+}
+
+export async function listSignageOrderIds(filters: SignageOrderFilters = {}): Promise<number[]> {
+  await ensureTable()
+  const { where, params } = buildSignageOrderWhere(filters)
+  return withClient(async (c) => {
+    const res = await c.query<{ id: number }>(
+      `SELECT id FROM signage_orders ${where} ORDER BY created_at DESC, id DESC`,
+      params
+    )
+    return res.rows.map((r) => r.id).filter((id) => Number.isFinite(id) && id > 0)
   })
 }
 

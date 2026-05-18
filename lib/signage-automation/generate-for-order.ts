@@ -162,7 +162,8 @@ export async function generateSignageAssetsForOrder(
           },
         })
       }
-      if (isA5Selection(selectedSizeValue)) {
+      const reviewDefaultA5 = catalogItem?.signage_kind === 'review' && !selectedSizeValue.trim()
+      if (reviewDefaultA5 || isA5Selection(selectedSizeValue)) {
         png = await renderA5TwoUpOnA4LikeSheet(png)
       }
       const uploaded = await uploadSignagePngToDrive({

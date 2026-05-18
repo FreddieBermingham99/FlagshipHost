@@ -28,6 +28,7 @@ type CatalogItem = {
   description: string | null
   image_url: string | null
   template_image_url?: string | null
+  signage_kind?: 'standard' | 'review'
   max_quantity?: number
   options: CatalogOption[]
 }
@@ -91,6 +92,16 @@ function findDefaultOptionValue(
     const value = String(opt.option_value || '').trim().toLowerCase()
     const name = String(opt.option_name || '').trim().toLowerCase()
     return accepted.some((token) => value === token || name === token)
+  })
+  return match?.option_value ?? null
+}
+
+function findA5SizeOptionValue(options: CatalogOption[]): string | null {
+  if (options.length === 0) return null
+  const match = options.find((opt) => {
+    const value = String(opt.option_value || '').trim().toLowerCase()
+    const name = String(opt.option_name || '').trim().toLowerCase()
+    return value === 'a5' || value.includes('a5') || name === 'a5' || name.includes('a5')
   })
   return match?.option_value ?? null
 }
@@ -381,6 +392,15 @@ export default function SignageOrderingLanding({
       const typed = groupedOptionsByType(item)
       if (typed.design.length === 1) {
         defaultOptions[typed.design[0]!.option_group_label] = typed.design[0]!.option_value
+      }
+      if (item.signage_kind === 'review') {
+        const designValue = resolveSelectedDesignValue(defaultOptions, typed.design)
+        const scopedSizes = sizeOptionsForDesign(typed.size, designValue)
+        const sizeGroups = groupByLabel(scopedSizes)
+        for (const [group, opts] of Object.entries(sizeGroups)) {
+          const a5 = findA5SizeOptionValue(opts)
+          if (a5) defaultOptions[group] = a5
+        }
       }
       const grouped = item.options.reduce<Record<string, CatalogOption[]>>((acc, opt) => {
         if (!acc[opt.option_group_label]) acc[opt.option_group_label] = []
