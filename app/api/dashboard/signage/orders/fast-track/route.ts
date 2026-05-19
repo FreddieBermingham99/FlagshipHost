@@ -63,10 +63,6 @@ function addressLinesFromOrder(order: SignageOrderWithItems): string[] {
   return lines
 }
 
-function orderedLineItemSummary(order: SignageOrderWithItems): string {
-  return order.items.map((i) => `${i.item_name_snapshot} x${i.quantity}`).join(', ')
-}
-
 function normalizeOrderEmailGroupKey(raw: string | null | undefined): string {
   const t = String(raw || '').trim()
   if (!t) return 'default'
@@ -85,15 +81,6 @@ function itemEmailGroupKey(
   if (item.catalog_item_id == null) return 'default'
   const cat = catalogById.get(item.catalog_item_id)
   return normalizeOrderEmailGroupKey(cat?.order_email_group)
-}
-
-function itemEmailGroupLabel(
-  item: { catalog_item_id: number | null },
-  catalogById: Map<number, SignageCatalogItemWithOptions>
-): string {
-  if (item.catalog_item_id == null) return 'default'
-  const cat = catalogById.get(item.catalog_item_id)
-  return orderEmailGroupLabel(cat?.order_email_group)
 }
 
 function orderedLineItemSummaryForGroup(
