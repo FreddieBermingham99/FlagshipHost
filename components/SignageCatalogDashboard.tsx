@@ -46,6 +46,7 @@ type CatalogItem = {
   sort_order: number
   orders_count: number
   supplier_url?: string | null
+  order_email_group?: string | null
   options: CatalogOption[]
 }
 
@@ -150,6 +151,7 @@ export default function SignageCatalogDashboard() {
   const [imageUrl, setImageUrl] = useState('')
   const [templateImageUrl, setTemplateImageUrl] = useState('')
   const [newSupplierUrl, setNewSupplierUrl] = useState('')
+  const [newOrderEmailGroup, setNewOrderEmailGroup] = useState('default')
   const [newSignageKind, setNewSignageKind] = useState<'standard' | 'review'>('standard')
   const [optionTemplateOnly, setOptionTemplateOnly] = useState(false)
   const [newItemNoCustomisation, setNewItemNoCustomisation] = useState(false)
@@ -168,6 +170,7 @@ export default function SignageCatalogDashboard() {
   const [editItemImageUrl, setEditItemImageUrl] = useState('')
   const [editTemplateImageUrl, setEditTemplateImageUrl] = useState('')
   const [editSupplierUrl, setEditSupplierUrl] = useState('')
+  const [editOrderEmailGroup, setEditOrderEmailGroup] = useState('default')
   const [editSignageKind, setEditSignageKind] = useState<'standard' | 'review'>('standard')
   const [editItemMaxQuantity, setEditItemMaxQuantity] = useState(1)
   const [editItemRequiresQr, setEditItemRequiresQr] = useState(true)
@@ -219,6 +222,7 @@ export default function SignageCatalogDashboard() {
         max_quantity: Math.max(1, maxQuantity || 1),
         is_visible: true,
         supplier_url: newSupplierUrl.trim() || null,
+        order_email_group: newOrderEmailGroup.trim() || 'default',
       }),
     })
     setName('')
@@ -226,6 +230,7 @@ export default function SignageCatalogDashboard() {
     setImageUrl('')
     setTemplateImageUrl('')
     setNewSupplierUrl('')
+    setNewOrderEmailGroup('default')
     setNewSignageKind('standard')
     setNewItemNoCustomisation(false)
     setMaxQuantity(1)
@@ -286,6 +291,7 @@ export default function SignageCatalogDashboard() {
     setEditItemImageUrl(item.image_url || '')
     setEditTemplateImageUrl(item.template_image_url?.trim() ? item.template_image_url : '')
     setEditSupplierUrl(item.supplier_url?.trim() ? item.supplier_url : '')
+    setEditOrderEmailGroup(item.order_email_group?.trim() || 'default')
     setEditSignageKind(item.signage_kind === 'review' ? 'review' : 'standard')
     setEditItemMaxQuantity(Math.max(1, item.max_quantity || 1))
     setEditItemRequiresQr(item.requires_unique_qr !== false)
@@ -313,6 +319,7 @@ export default function SignageCatalogDashboard() {
         overlay_config: overlayRectsOnlyForSave(editOverlay) as Record<string, unknown>,
         max_quantity: Math.max(1, editItemMaxQuantity || 1),
         supplier_url: editSupplierUrl.trim() || null,
+        order_email_group: editOrderEmailGroup.trim() || 'default',
       }),
     })
     closeEditItemModal()
@@ -790,6 +797,18 @@ export default function SignageCatalogDashboard() {
                 className="text-xs"
               />
             </div>
+            <div className="space-y-1 border-t border-slate-100 pt-3">
+              <Label className="text-xs font-medium text-slate-700">Order email group</Label>
+              <p className="text-[11px] text-slate-500">
+                Fast-track summary emails are split by this value (e.g. <code>pavement</code>).
+              </p>
+              <Input
+                value={newOrderEmailGroup}
+                onChange={(e) => setNewOrderEmailGroup(e.target.value)}
+                placeholder="default"
+                className="text-xs"
+              />
+            </div>
             <div className="grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label className="text-xs font-medium text-slate-700">Display image (picker / website)</Label>
@@ -931,6 +950,10 @@ export default function SignageCatalogDashboard() {
                           </a>
                         </p>
                       ) : null}
+                      <p className="mt-1 text-xs text-slate-500">
+                        Email group:{' '}
+                        <span className="font-semibold text-slate-700">{item.order_email_group?.trim() || 'default'}</span>
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => openAddOptionModal(item.id)}>
@@ -1075,6 +1098,17 @@ export default function SignageCatalogDashboard() {
                   value={editSupplierUrl}
                   onChange={(e) => setEditSupplierUrl(e.target.value)}
                   placeholder="https://…"
+                />
+              </div>
+              <div className="space-y-2 border-t pt-4">
+                <Label>Order email group</Label>
+                <p className="text-[11px] text-slate-500">
+                  Fast-track summary emails are split by this group (e.g. <code>pavement</code>).
+                </p>
+                <Input
+                  value={editOrderEmailGroup}
+                  onChange={(e) => setEditOrderEmailGroup(e.target.value)}
+                  placeholder="default"
                 />
               </div>
               <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">

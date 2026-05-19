@@ -45,6 +45,7 @@ export async function POST(req: Request) {
       is_visible?: boolean
       sort_order?: number
       supplier_url?: string | null
+      order_email_group?: string
     }
     if (!body.name || !String(body.name).trim()) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 })
@@ -78,6 +79,10 @@ export async function POST(req: Request) {
           : body.supplier_url === null
             ? null
             : undefined,
+      order_email_group:
+        typeof body.order_email_group === 'string'
+          ? body.order_email_group.trim() || 'default'
+          : undefined,
     })
     return NextResponse.json({ item })
   } catch (e) {

@@ -101,6 +101,10 @@ export async function PATCH(
             ? ''
             : String(patchBody.supplier_url).trim()
           : undefined,
+      order_email_group:
+        'order_email_group' in patchBody
+          ? String(patchBody.order_email_group ?? '').trim() || 'default'
+          : undefined,
     })
     if (!updated) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
     return NextResponse.json({ item: updated })

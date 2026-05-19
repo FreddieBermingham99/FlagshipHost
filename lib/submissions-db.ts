@@ -128,9 +128,13 @@ ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS template_image_url TE
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS requires_customisation BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS supplier_url TEXT;
 ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS signage_kind TEXT NOT NULL DEFAULT 'standard';
+ALTER TABLE signage_catalog_items ADD COLUMN IF NOT EXISTS order_email_group TEXT NOT NULL DEFAULT 'default';
 UPDATE signage_catalog_items
 SET signage_kind = 'standard'
 WHERE signage_kind IS NULL OR signage_kind NOT IN ('standard', 'review');
+UPDATE signage_catalog_items
+SET order_email_group = 'default'
+WHERE order_email_group IS NULL OR TRIM(order_email_group) = '';
 
 CREATE TABLE IF NOT EXISTS signage_catalog_item_options (
   id SERIAL PRIMARY KEY,
@@ -711,6 +715,8 @@ export type SignageCatalogItem = {
   sort_order: number
   /** Optional purchasing / supplier page shown in order summary emails when this type is on an order. */
   supplier_url: string | null
+  /** Group key used to split fast-track order summary emails by supplier/workflow. */
+  order_email_group: string
   orders_count: number
   created_at: string
   updated_at: string
@@ -733,6 +739,7 @@ export type SignageCatalogItemInsert = {
   is_visible?: boolean
   sort_order?: number
   supplier_url?: string | null
+  order_email_group?: string
 }
 
 export type SignageCatalogItemUpdate = Partial<SignageCatalogItemInsert>
@@ -869,8 +876,8 @@ export async function createSignageCatalogItem(
   return withClient(async (c) => {
     const res = await c.query<SignageCatalogItem>(
       `INSERT INTO signage_catalog_items
-       (name, description, image_url, template_image_url, signage_kind, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order, supplier_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
+       (name, description, image_url, template_image_url, signage_kind, requires_customisation, requires_unique_qr, overlay_config, max_quantity, is_visible, sort_order, supplier_url, order_email_group)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         data.name,
@@ -885,6 +892,7 @@ export async function createSignageCatalogItem(
         data.is_visible ?? true,
         data.sort_order ?? 0,
         data.supplier_url != null && String(data.supplier_url).trim() ? String(data.supplier_url).trim() : null,
+        data.order_email_group?.trim() || 'default',
       ]
     )
     return res.rows[0]
@@ -912,6 +920,7 @@ export async function updateSignageCatalogItem(
         is_visible = COALESCE($10, is_visible),
         sort_order = COALESCE($11, sort_order),
         supplier_url = COALESCE($13, supplier_url),
+        order_email_group = COALESCE($14, order_email_group),
          updated_at = now()
        WHERE id = $12
        RETURNING *`,
@@ -933,6 +942,7 @@ export async function updateSignageCatalogItem(
             ? String(data.supplier_url).trim()
             : ''
           : null,
+        data.order_email_group !== undefined ? data.order_email_group.trim() || 'default' : null,
       ]
     )
     return res.rows[0] ?? null

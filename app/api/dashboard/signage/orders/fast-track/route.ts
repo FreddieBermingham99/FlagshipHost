@@ -19,6 +19,7 @@ import {
   getSignageOrderById,
   isSubmissionsDbConfigured,
   listSignageCatalogItems,
+  type SignageCatalogItemWithOptions,
   type SignageOrderWithItems,
 } from '@/lib/submissions-db'
 
@@ -66,6 +67,46 @@ function orderedLineItemSummary(order: SignageOrderWithItems): string {
   return order.items.map((i) => `${i.item_name_snapshot} x${i.quantity}`).join(', ')
 }
 
+function normalizeOrderEmailGroupKey(raw: string | null | undefined): string {
+  const t = String(raw || '').trim()
+  if (!t) return 'default'
+  return t.toLowerCase()
+}
+
+function orderEmailGroupLabel(raw: string | null | undefined): string {
+  const t = String(raw || '').trim()
+  return t || 'default'
+}
+
+function itemEmailGroupKey(
+  item: { catalog_item_id: number | null },
+  catalogById: Map<number, SignageCatalogItemWithOptions>
+): string {
+  if (item.catalog_item_id == null) return 'default'
+  const cat = catalogById.get(item.catalog_item_id)
+  return normalizeOrderEmailGroupKey(cat?.order_email_group)
+}
+
+function itemEmailGroupLabel(
+  item: { catalog_item_id: number | null },
+  catalogById: Map<number, SignageCatalogItemWithOptions>
+): string {
+  if (item.catalog_item_id == null) return 'default'
+  const cat = catalogById.get(item.catalog_item_id)
+  return orderEmailGroupLabel(cat?.order_email_group)
+}
+
+function orderedLineItemSummaryForGroup(
+  order: SignageOrderWithItems,
+  groupKey: string,
+  catalogById: Map<number, SignageCatalogItemWithOptions>
+): string {
+  return order.items
+    .filter((it) => itemEmailGroupKey(it, catalogById) === groupKey)
+    .map((i) => `${i.item_name_snapshot} x${i.quantity}`)
+    .join(', ')
+}
+
 export async function POST(req: Request) {
   const authErr = requireDashboardSessionApi()
   if (authErr) return authErr
@@ -106,25 +147,12 @@ export async function POST(req: Request) {
     )
   }
 
-  const results: Array<{
-    orderId: number
-    ok: boolean
-    error?: string
-    stashpointId?: string | null
-    businessName?: string
-    city?: string | null
-    country?: string | null
-    addressLines?: string[]
-    hostFirst?: string
-    hostLast?: string
-    contactEmail?: string
-    contactPhone?: string | null
-    ordered?: string
-  }> = []
-
-  const ordersForAgg: SignageOrderWithItems[] = []
+  const results: Array<{ orderId: number; ok: boolean; error?: string }> = []
+  const generatedOrders: SignageOrderWithItems[] = []
   const automation = await getAutomationConfig()
   const rootFolderId = String(automation.google_drive_folder_id || '').trim()
+  const catalog = await listSignageCatalogItems(false)
+  const catalogById = new Map(catalog.map((c) => [c.id, c]))
   const runLabel = `fast-track-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`
   let runFolderId = rootFolderId
   let runFolderLink = ''
@@ -136,28 +164,47 @@ export async function POST(req: Request) {
     runFolderId = runFolder.folderId || rootFolderId
     runFolderLink = runFolder.webViewLink || ''
   }
-  const folderByKey = new Map<string, { label: string; folderId: string; link: string }>()
+  const groupRootFolderByKey = new Map<string, { label: string; folderId: string; link: string }>()
+  const foldersByGroup = new Map<string, Map<string, { label: string; folderId: string; link: string }>>()
 
   for (const orderId of orderIds) {
     const gen = await generateSignageAssetsForOrder(orderId, {
       uploadFolderId: runFolderId || undefined,
       resolveUploadFolderId: async (ctx) => {
         if (!runFolderId) return { folderId: '', folderLabel: undefined }
+        const groupKey = normalizeOrderEmailGroupKey(ctx.catalogItem?.order_email_group)
+        const groupLabel = orderEmailGroupLabel(ctx.catalogItem?.order_email_group)
+        let groupRoot = groupRootFolderByKey.get(groupKey)
+        if (!groupRoot) {
+          const createdGroupRoot = await ensureDriveSubfolder({
+            parentFolderId: runFolderId,
+            folderName: groupLabel,
+          })
+          groupRoot = {
+            label: groupLabel,
+            folderId: createdGroupRoot.folderId,
+            link: createdGroupRoot.webViewLink || '',
+          }
+          groupRootFolderByKey.set(groupKey, groupRoot)
+        }
+
         const catalogName = ctx.catalogItem?.name || ctx.itemNameSnapshot
         const label = buildSignageVariantFolderLabel({
           catalogName,
           selectedOptions: ctx.selectedOptions,
           fallbackSize: ctx.selectedSizeValue,
         })
-        const key = label.toLowerCase()
-        const cached = folderByKey.get(key)
+        const folderKey = label.toLowerCase()
+        if (!foldersByGroup.has(groupKey)) foldersByGroup.set(groupKey, new Map())
+        const inGroup = foldersByGroup.get(groupKey)!
+        const cached = inGroup.get(folderKey)
         if (cached) return { folderId: cached.folderId, folderLabel: cached.label }
         const created = await ensureDriveSubfolder({
-          parentFolderId: runFolderId,
+          parentFolderId: groupRoot.folderId,
           folderName: label,
         })
         const next = { label, folderId: created.folderId, link: created.webViewLink || '' }
-        folderByKey.set(key, next)
+        inGroup.set(folderKey, next)
         return { folderId: next.folderId, folderLabel: next.label }
       },
     })
@@ -170,107 +217,138 @@ export async function POST(req: Request) {
       })
       continue
     }
-    ordersForAgg.push(order)
-    const hn = hostNameCells(order.contact_name)
+    generatedOrders.push(order)
     results.push({
       orderId,
       ok: gen.ok,
       error: gen.ok ? undefined : gen.error,
-      stashpointId: order.stashpoint_id,
-      businessName: order.business_name,
-      city: order.city,
-      country: order.country,
-      addressLines: addressLinesFromOrder(order),
-      hostFirst: hn.first,
-      hostLast: hn.last,
-      contactEmail: order.contact_email,
-      contactPhone: order.contact_phone,
-      ordered: orderedLineItemSummary(order),
     })
   }
+  const allGroupKeys = new Set<string>()
+  for (const order of generatedOrders) {
+    for (const it of order.items) allGroupKeys.add(itemEmailGroupKey(it, catalogById))
+  }
+  if (allGroupKeys.size === 0) allGroupKeys.add('default')
 
-  const htmlRows = results
-    .map((r) => {
-      const status = r.ok ? 'OK' : escapeHtml(r.error || 'Failed')
-      const biz = escapeHtml(r.businessName || '')
-      const sp = escapeHtml(r.stashpointId || '—')
-      const cityCountry = [r.city, r.country].filter((x) => x?.trim()).join(', ')
-      const city = escapeHtml(cityCountry || '—')
-      const addr =
-        r.addressLines && r.addressLines.length > 0
-          ? r.addressLines.map((line) => escapeHtml(line)).join('<br/>')
-          : '—'
-      const hf = escapeHtml(r.hostFirst || '—')
-      const hl = escapeHtml(r.hostLast || '—')
-      const em = escapeHtml(r.contactEmail || '—')
-      const ph = escapeHtml(r.contactPhone || '—')
-      const ord = escapeHtml(r.ordered || '—')
-      return `<tr><td>${r.orderId}</td><td>${sp}</td><td>${biz}</td><td>${city}</td><td>${addr}</td><td>${hf}</td><td>${hl}</td><td>${em}</td><td>${ph}</td><td>${ord}</td><td>${status}</td></tr>`
+  const sentGroups: string[] = []
+  for (const groupKey of allGroupKeys) {
+    const groupOrders = generatedOrders.filter((order) =>
+      order.items.some((it) => itemEmailGroupKey(it, catalogById) === groupKey)
+    )
+    if (groupOrders.length === 0) continue
+    const firstGroupItem = groupOrders
+      .flatMap((o) => o.items)
+      .find((it) => itemEmailGroupKey(it, catalogById) === groupKey)
+    const firstGroupCatalog =
+      firstGroupItem?.catalog_item_id != null ? catalogById.get(firstGroupItem.catalog_item_id) : undefined
+    const groupLabel =
+      groupRootFolderByKey.get(groupKey)?.label ||
+      orderEmailGroupLabel(firstGroupCatalog?.order_email_group || groupKey)
+    const groupRootLink = groupRootFolderByKey.get(groupKey)?.link || ''
+    const groupRows = groupOrders.map((order) => {
+      const hn = hostNameCells(order.contact_name)
+      const groupedItems = order.items.filter((it) => itemEmailGroupKey(it, catalogById) === groupKey)
+      const failed = groupedItems.some((it) => String(it.asset_error || '').trim())
+      return {
+        orderId: order.id,
+        stashpointId: order.stashpoint_id,
+        businessName: order.business_name,
+        city: order.city,
+        country: order.country,
+        addressLines: addressLinesFromOrder(order),
+        hostFirst: hn.first,
+        hostLast: hn.last,
+        contactEmail: order.contact_email,
+        contactPhone: order.contact_phone,
+        ordered: orderedLineItemSummaryForGroup(order, groupKey, catalogById),
+        status: failed ? 'FAILED' : 'OK',
+      }
     })
-    .join('')
 
-  const groupedFolders = [...folderByKey.values()].sort((a, b) => a.label.localeCompare(b.label))
-  const foldersHtml =
-    groupedFolders.length === 0
-      ? '<p><em>No grouped folder links were generated.</em></p>'
-      : `<h3>Generated folders (by signage type + variation)</h3><ul>${groupedFolders
-          .map(
-            (f) =>
-              f.link
-                ? `<li>${escapeHtml(f.label)}: <a href="${escapeHtml(f.link)}">${escapeHtml(f.link)}</a></li>`
-                : `<li>${escapeHtml(f.label)}: <em>link unavailable</em></li>`
-          )
-          .join('')}</ul>`
-  const foldersText =
-    groupedFolders.length === 0
-      ? 'Generated folders (by signage type + variation): none'
-      : `Generated folders (by signage type + variation):\n${groupedFolders
-          .map((f) => `- ${f.label}: ${f.link || '(missing link)'}`)
-          .join('\n')}`
+    const htmlRows = groupRows
+      .map((r) => {
+        const biz = escapeHtml(r.businessName || '')
+        const sp = escapeHtml(r.stashpointId || '—')
+        const cityCountry = [r.city, r.country].filter((x) => x?.trim()).join(', ')
+        const city = escapeHtml(cityCountry || '—')
+        const addr =
+          r.addressLines && r.addressLines.length > 0
+            ? r.addressLines.map((line) => escapeHtml(line)).join('<br/>')
+            : '—'
+        const hf = escapeHtml(r.hostFirst || '—')
+        const hl = escapeHtml(r.hostLast || '—')
+        const em = escapeHtml(r.contactEmail || '—')
+        const ph = escapeHtml(r.contactPhone || '—')
+        const ord = escapeHtml(r.ordered || '—')
+        return `<tr><td>${r.orderId}</td><td>${sp}</td><td>${biz}</td><td>${city}</td><td>${addr}</td><td>${hf}</td><td>${hl}</td><td>${em}</td><td>${ph}</td><td>${ord}</td><td>${r.status}</td></tr>`
+      })
+      .join('')
 
-  const text = results
-    .map((r) => {
-      const header = [
-        `Order #${r.orderId}`,
-        `Stashpoint: ${r.stashpointId || '—'}`,
-        `Business: ${r.businessName || '?'}`,
-        `City: ${[r.city, r.country].filter((x) => x?.trim()).join(', ') || '—'}`,
-        `Address: ${r.addressLines?.length ? r.addressLines.join(' | ') : '—'}`,
-        `Host: ${r.hostFirst || '—'} ${r.hostLast || '—'}`.trim(),
-        `Email: ${r.contactEmail || '—'}`,
-        `Phone: ${r.contactPhone || '—'}`,
-        `Ordered: ${r.ordered || '—'}`,
-        `Status: ${r.ok ? 'OK' : `FAILED: ${r.error || ''}`}`,
-      ].join('\n')
-      return header
-    })
-    .join('\n\n')
+    const groupOrdersForAgg = groupOrders.map((order) => ({
+      ...order,
+      items: order.items.filter((it) => itemEmailGroupKey(it, catalogById) === groupKey),
+    }))
+    const nuGroups = aggregateNonUniqueSignageGrouped(groupOrdersForAgg, catalogById)
+    const nonUniqueLines = formatNonUniqueGroupedText(nuGroups)
+    const nuHtmlInner = formatNonUniqueGroupedHtml(escapeHtml, nuGroups)
+    const custLinks = aggregateCustomisedSupplierLinks(groupOrdersForAgg, catalogById)
+    const custHtml = formatCustomisedSupplierLinksHtml(escapeHtml, custLinks)
+    const custText = formatCustomisedSupplierLinksText(custLinks)
+    const nonUniqueHtml = [
+      nuHtmlInner ? `<h3>Non-unique signage (totals for this email)</h3>${nuHtmlInner}` : '',
+      custHtml,
+    ]
+      .filter(Boolean)
+      .join('')
+    const nonUniqueText = [
+      nonUniqueLines.length > 0 ? `Non-unique signage (totals for this email):\n${nonUniqueLines.join('\n')}\n` : '',
+      custText,
+    ]
+      .filter(Boolean)
+      .join('\n')
 
-  const catalog = await listSignageCatalogItems(false)
-  const catalogById = new Map(catalog.map((c) => [c.id, c]))
-  const nuGroups = aggregateNonUniqueSignageGrouped(ordersForAgg, catalogById)
-  const nonUniqueLines = formatNonUniqueGroupedText(nuGroups)
-  const nuHtmlInner = formatNonUniqueGroupedHtml(escapeHtml, nuGroups)
-  const custLinks = aggregateCustomisedSupplierLinks(ordersForAgg, catalogById)
-  const custHtml = formatCustomisedSupplierLinksHtml(escapeHtml, custLinks)
-  const custText = formatCustomisedSupplierLinksText(custLinks)
+    const groupedFolders = [...(foldersByGroup.get(groupKey)?.values() ?? [])].sort((a, b) =>
+      a.label.localeCompare(b.label)
+    )
+    const foldersHtml =
+      groupedFolders.length === 0
+        ? '<p><em>No grouped folder links were generated.</em></p>'
+        : `<h3>Generated folders (by signage type + variation)</h3><ul>${groupedFolders
+            .map(
+              (f) =>
+                f.link
+                  ? `<li>${escapeHtml(f.label)}: <a href="${escapeHtml(f.link)}">${escapeHtml(f.link)}</a></li>`
+                  : `<li>${escapeHtml(f.label)}: <em>link unavailable</em></li>`
+            )
+            .join('')}</ul>`
+    const foldersText =
+      groupedFolders.length === 0
+        ? 'Generated folders (by signage type + variation): none'
+        : `Generated folders (by signage type + variation):\n${groupedFolders
+            .map((f) => `- ${f.label}: ${f.link || '(missing link)'}`)
+            .join('\n')}`
 
-  const nonUniqueHtml = [
-    nuHtmlInner ? `<h3>Non-unique signage (totals for these orders)</h3>${nuHtmlInner}` : '',
-    custHtml,
-  ]
-    .filter(Boolean)
-    .join('')
-  const nonUniqueText = [
-    nonUniqueLines.length > 0 ? `Non-unique signage (totals for these orders):\n${nonUniqueLines.join('\n')}\n` : '',
-    custText,
-  ]
-    .filter(Boolean)
-    .join('\n')
+    const text = groupRows
+      .map((r) =>
+        [
+          `Order #${r.orderId}`,
+          `Stashpoint: ${r.stashpointId || '—'}`,
+          `Business: ${r.businessName || '?'}`,
+          `City: ${[r.city, r.country].filter((x) => x?.trim()).join(', ') || '—'}`,
+          `Address: ${r.addressLines?.length ? r.addressLines.join(' | ') : '—'}`,
+          `Host: ${r.hostFirst || '—'} ${r.hostLast || '—'}`.trim(),
+          `Email: ${r.contactEmail || '—'}`,
+          `Phone: ${r.contactPhone || '—'}`,
+          `Ordered: ${r.ordered || '—'}`,
+          `Status: ${r.status}`,
+        ].join('\n')
+      )
+      .join('\n\n')
 
-  const html = `<h2>Signage assets (fast-track)</h2>
+    const html = `<h2>Signage assets (fast-track: ${escapeHtml(groupLabel)})</h2>
 ${nonUniqueHtml}
-<p>Generated ${results.length} order(s).</p>
+<p>Generated ${groupRows.length} order(s) for group <strong>${escapeHtml(groupLabel)}</strong>.</p>
+${groupRootLink ? `<p><strong>Group folder:</strong> <a href="${escapeHtml(groupRootLink)}">${escapeHtml(groupRootLink)}</a></p>` : ''}
 ${runFolderLink ? `<p><strong>Run folder:</strong> <a href="${escapeHtml(runFolderLink)}">${escapeHtml(runFolderLink)}</a></p>` : ''}
 <table border="1" cellpadding="8" cellspacing="0">
 <thead><tr><th>Order</th><th>Stashpoint ID</th><th>Business</th><th>City / country</th><th>Address</th><th>Host first</th><th>Host last</th><th>Email</th><th>Phone</th><th>Ordered</th><th>Status</th></tr></thead>
@@ -278,24 +356,27 @@ ${runFolderLink ? `<p><strong>Run folder:</strong> <a href="${escapeHtml(runFold
 </table>
 ${foldersHtml}`
 
-  const emailResult = await sendCampaignEmail({
-    to,
-    subject: `Signage fast-track: ${results.length} order(s)`,
-    text: [nonUniqueText, runFolderLink ? `Run folder: ${runFolderLink}\n` : '', text, '\n', foldersText]
-      .filter(Boolean)
-      .join('\n'),
-    html,
-  })
-  if (!emailResult.ok) {
-    return NextResponse.json(
-      {
-        error: emailResult.error,
-        results,
-        emailed: false,
-      },
-      { status: 502 }
-    )
+    const emailResult = await sendCampaignEmail({
+      to,
+      subject: `Signage fast-track (${groupLabel}): ${groupRows.length} order(s)`,
+      text: [nonUniqueText, groupRootLink ? `Group folder: ${groupRootLink}\n` : '', runFolderLink ? `Run folder: ${runFolderLink}\n` : '', text, '\n', foldersText]
+        .filter(Boolean)
+        .join('\n'),
+      html,
+    })
+    if (!emailResult.ok) {
+      return NextResponse.json(
+        {
+          error: emailResult.error,
+          results,
+          emailed: false,
+          failedGroup: groupLabel,
+        },
+        { status: 502 }
+      )
+    }
+    sentGroups.push(groupLabel)
   }
 
-  return NextResponse.json({ ok: true, emailed: true, to, results })
+  return NextResponse.json({ ok: true, emailed: true, to, results, groups: sentGroups })
 }
