@@ -13,6 +13,8 @@ import {
 import { matchOrderOptionsToSelection } from '@/lib/signage-automation/match-catalog-options'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
 import { getAutomationConfig } from '@/lib/signage-automation/config'
+
+type AutomationConfig = Awaited<ReturnType<typeof getAutomationConfig>>
 import { buildQrUrl } from '@/lib/signage-automation/qr-url'
 import {
   passthroughTemplateAsPng,
@@ -116,6 +118,10 @@ export type GenerateSignageAssetsOptions = {
     selectedOptions: Record<string, string | string[]>
     selectedSizeValue: string
   }) => Promise<{ folderId: string; folderLabel?: string } | string>
+  /** Pre-loaded automation config to avoid re-querying once per order. */
+  automationConfig?: AutomationConfig
+  /** Pre-loaded catalog (keyed by id) to avoid re-querying once per order. */
+  catalogById?: Map<number, SignageCatalogItemWithOptions>
 }
 
 export async function generateSignageAssetsForOrder(
@@ -126,12 +132,15 @@ export async function generateSignageAssetsForOrder(
   if (!order) return { ok: false, error: 'Order not found', itemUploads: [] }
   const stashpointId = String(order.stashpoint_id || '').trim()
   if (!stashpointId) return { ok: false, error: 'Order has no stashpoint_id', itemUploads: [] }
-  const settings = await getAutomationConfig()
+  const settings = options?.automationConfig ?? (await getAutomationConfig())
   const rootFolder = String(settings.google_drive_folder_id || '').trim()
   const uploadFolderId = String(options?.uploadFolderId ?? '').trim() || rootFolder
   if (!uploadFolderId) return { ok: false, error: 'Google Drive folder is not configured', itemUploads: [] }
-  const catalog = await listSignageCatalogItems(false)
-  const byId = new Map<number, SignageCatalogItemWithOptions>(catalog.map((c) => [c.id, c]))
+  const byId =
+    options?.catalogById ??
+    new Map<number, SignageCatalogItemWithOptions>(
+      (await listSignageCatalogItems(false)).map((c) => [c.id, c])
+    )
   let hadErrors = false
   const errorDetails: string[] = []
   const itemUploads: GenerateSignageItemUploadInfo[] = []

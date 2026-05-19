@@ -141,14 +141,25 @@ function parseServiceAccountJson(rawInput: string): { client_email: string; priv
   return { client_email, private_key }
 }
 
+let cachedDriveAuth: InstanceType<typeof google.auth.JWT> | null = null
+let cachedDriveClient: ReturnType<typeof google.drive> | null = null
+
 function getDriveAuth() {
+  if (cachedDriveAuth) return cachedDriveAuth
   const raw = loadCredentialsRaw()
   const creds = parseServiceAccountJson(raw)
-  return new google.auth.JWT({
+  cachedDriveAuth = new google.auth.JWT({
     email: creds.client_email,
     key: creds.private_key,
     scopes: ['https://www.googleapis.com/auth/drive'],
   })
+  return cachedDriveAuth
+}
+
+function getDriveClient() {
+  if (cachedDriveClient) return cachedDriveClient
+  cachedDriveClient = google.drive({ version: 'v3', auth: getDriveAuth() })
+  return cachedDriveClient
 }
 
 function sanitizeFileName(name: string): string {
@@ -164,8 +175,7 @@ export async function ensureDriveSubfolder(params: {
   parentFolderId: string
   folderName: string
 }): Promise<{ folderId: string; webViewLink: string }> {
-  const auth = getDriveAuth()
-  const drive = google.drive({ version: 'v3', auth })
+  const drive = getDriveClient()
   const rawName = params.folderName.trim()
   const safeName = rawName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
   const searchRes = await drive.files.list({
@@ -210,8 +220,7 @@ export async function uploadSignagePngToDrive(params: {
   pngBuffer: Buffer
   folderId: string
 }): Promise<{ fileId: string; webViewLink: string }> {
-  const auth = getDriveAuth()
-  const drive = google.drive({ version: 'v3', auth })
+  const drive = getDriveClient()
   const name = `${sanitizeFileName(params.fileNameBase)}.png`
   const searchRes = await drive.files.list({
     q: `name='${name.replace(/'/g, "\\'")}' and '${params.folderId}' in parents and trashed=false`,

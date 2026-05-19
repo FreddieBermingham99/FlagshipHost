@@ -24,8 +24,34 @@ import {
 } from '@/lib/submissions-db'
 
 export const dynamic = 'force-dynamic'
+// Vercel Pro ceiling. Bulk fast-tracks render + upload many assets to Drive,
+// so the default 300 s can be exceeded for large selections.
+export const maxDuration = 800
 
 const MAX_ORDERS = 500
+/** How many orders to process in parallel. */
+const ORDER_CONCURRENCY = 6
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (true) {
+        const idx = cursor++
+        if (idx >= items.length) return
+        results[idx] = await worker(items[idx], idx)
+      }
+    }
+  )
+  await Promise.all(workers)
+  return results
+}
 
 function escapeHtml(s: string): string {
   return s
@@ -151,29 +177,41 @@ export async function POST(req: Request) {
     runFolderId = runFolder.folderId || rootFolderId
     runFolderLink = runFolder.webViewLink || ''
   }
-  const groupRootFolderByKey = new Map<string, { label: string; folderId: string; link: string }>()
-  const foldersByGroup = new Map<string, Map<string, { label: string; folderId: string; link: string }>>()
+  type FolderInfo = { label: string; folderId: string; link: string }
+  // Promise caches so multiple concurrent orders that map to the same group/folder
+  // share a single Drive create call instead of racing and creating duplicates.
+  const groupRootFolderByKey = new Map<string, FolderInfo>()
+  const foldersByGroup = new Map<string, Map<string, FolderInfo>>()
+  const groupRootPromises = new Map<string, Promise<FolderInfo>>()
+  const folderPromisesByGroup = new Map<string, Map<string, Promise<FolderInfo>>>()
 
-  for (const orderId of orderIds) {
+  const settled = await runWithConcurrency(orderIds, ORDER_CONCURRENCY, async (orderId) => {
     const gen = await generateSignageAssetsForOrder(orderId, {
       uploadFolderId: runFolderId || undefined,
+      automationConfig: automation,
+      catalogById,
       resolveUploadFolderId: async (ctx) => {
         if (!runFolderId) return { folderId: '', folderLabel: undefined }
         const groupKey = normalizeOrderEmailGroupKey(ctx.catalogItem?.order_email_group)
         const groupLabel = orderEmailGroupLabel(ctx.catalogItem?.order_email_group)
-        let groupRoot = groupRootFolderByKey.get(groupKey)
-        if (!groupRoot) {
-          const createdGroupRoot = await ensureDriveSubfolder({
-            parentFolderId: runFolderId,
-            folderName: groupLabel,
-          })
-          groupRoot = {
-            label: groupLabel,
-            folderId: createdGroupRoot.folderId,
-            link: createdGroupRoot.webViewLink || '',
-          }
-          groupRootFolderByKey.set(groupKey, groupRoot)
+        let groupRootPromise = groupRootPromises.get(groupKey)
+        if (!groupRootPromise) {
+          groupRootPromise = (async () => {
+            const created = await ensureDriveSubfolder({
+              parentFolderId: runFolderId,
+              folderName: groupLabel,
+            })
+            const info: FolderInfo = {
+              label: groupLabel,
+              folderId: created.folderId,
+              link: created.webViewLink || '',
+            }
+            groupRootFolderByKey.set(groupKey, info)
+            return info
+          })()
+          groupRootPromises.set(groupKey, groupRootPromise)
         }
+        const groupRoot = await groupRootPromise
 
         const catalogName = ctx.catalogItem?.name || ctx.itemNameSnapshot
         const label = buildSignageVariantFolderLabel({
@@ -182,33 +220,40 @@ export async function POST(req: Request) {
           fallbackSize: ctx.selectedSizeValue,
         })
         const folderKey = label.toLowerCase()
-        if (!foldersByGroup.has(groupKey)) foldersByGroup.set(groupKey, new Map())
-        const inGroup = foldersByGroup.get(groupKey)!
-        const cached = inGroup.get(folderKey)
-        if (cached) return { folderId: cached.folderId, folderLabel: cached.label }
-        const created = await ensureDriveSubfolder({
-          parentFolderId: groupRoot.folderId,
-          folderName: label,
-        })
-        const next = { label, folderId: created.folderId, link: created.webViewLink || '' }
-        inGroup.set(folderKey, next)
-        return { folderId: next.folderId, folderLabel: next.label }
+        if (!folderPromisesByGroup.has(groupKey)) folderPromisesByGroup.set(groupKey, new Map())
+        const promiseMap = folderPromisesByGroup.get(groupKey)!
+        let folderPromise = promiseMap.get(folderKey)
+        if (!folderPromise) {
+          folderPromise = (async () => {
+            const created = await ensureDriveSubfolder({
+              parentFolderId: groupRoot.folderId,
+              folderName: label,
+            })
+            const info: FolderInfo = { label, folderId: created.folderId, link: created.webViewLink || '' }
+            if (!foldersByGroup.has(groupKey)) foldersByGroup.set(groupKey, new Map())
+            foldersByGroup.get(groupKey)!.set(folderKey, info)
+            return info
+          })()
+          promiseMap.set(folderKey, folderPromise)
+        }
+        const folder = await folderPromise
+        return { folderId: folder.folderId, folderLabel: folder.label }
       },
     })
     const order = await getSignageOrderById(orderId)
-    if (!order) {
-      results.push({
-        orderId,
-        ok: false,
-        error: 'Order not found after generation',
-      })
+    return { orderId, gen, order }
+  })
+
+  for (const r of settled) {
+    if (!r.order) {
+      results.push({ orderId: r.orderId, ok: false, error: 'Order not found after generation' })
       continue
     }
-    generatedOrders.push(order)
+    generatedOrders.push(r.order)
     results.push({
-      orderId,
-      ok: gen.ok,
-      error: gen.ok ? undefined : gen.error,
+      orderId: r.orderId,
+      ok: r.gen.ok,
+      error: r.gen.ok ? undefined : r.gen.error,
     })
   }
   const allGroupKeys = new Set<string>()
