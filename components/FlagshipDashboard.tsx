@@ -690,15 +690,6 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
     }
   }
 
-  async function logout() {
-    try {
-      await fetch('/api/dashboard/logout', { method: 'POST' })
-    } catch {
-      /* still navigate away */
-    }
-    window.location.href = '/dashboard/login'
-  }
-
   async function sendCampaign() {
     setCampaignMessage(null)
     setCampaignFailures(null)
@@ -810,61 +801,14 @@ export default function FlagshipDashboard({ siteBaseUrl }: FlagshipDashboardProp
   const campaignBusy = campaignSending || testEmailSending
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900">
+    <div className="min-h-screen bg-dashboard-canvas px-4 py-10 text-slate-900">
       <div className="mx-auto max-w-[1600px] space-y-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Flagship dashboard</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">Flagship dashboard</h1>
             <p className="mt-1 text-sm text-slate-600">
               Choose a city, set landing-page overrides, then review stashpoints and links.
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="/dashboard/submissions"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Submissions
-            </a>
-            <a
-              href="/dashboard/campaigns"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Campaigns
-            </a>
-            <a
-              href="/dashboard/signage/catalog"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Signage catalog
-            </a>
-            <a
-              href="/dashboard/signage/orders"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Signage orders
-            </a>
-            <a
-              href="/dashboard/signage/links"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Signage links
-            </a>
-            <a
-              href="/dashboard/signage/automation"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Signage automation
-            </a>
-            <a
-              href="/dashboard/programme/links"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Programme links
-            </a>
-            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={logout}>
-              Log out
-            </Button>
           </div>
         </div>
         <div>

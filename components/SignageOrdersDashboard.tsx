@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Search,
   Filter,
@@ -12,11 +12,15 @@ import {
   Truck,
   Trash2,
   Mail,
+  ChevronDown,
+  ChevronUp,
+  ImageOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SignageOrderProviderJobs } from '@/components/SignageOrderProviderJobs'
 
 type Order = {
   id: number
@@ -51,6 +55,33 @@ type OrderDetail = Order & {
   address_country: string | null
   notes: string | null
   items: OrderItem[]
+}
+
+type ProviderJobSummary = {
+  id: number
+  order_item_id: number
+  provider: 'solopress' | 'helloprint' | 'cloudprinter'
+  provider_job_ref: string
+  status: string
+}
+
+const ACTIVE_PROVIDER_JOB_STATUSES = new Set([
+  'placed',
+  'in_production',
+  'shipped',
+  'delivered',
+])
+
+/** Convert a Google Drive viewer URL to a direct-image URL we can <img> render. */
+function driveImageSrc(url: string | null | undefined): string | null {
+  if (!url) return null
+  const trimmed = url.trim()
+  if (!trimmed) return null
+  const match = trimmed.match(/(?:\/d\/|id=)([A-Za-z0-9_-]{10,})/)
+  if (match) {
+    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`
+  }
+  return trimmed
 }
 
 type FiltersState = {
@@ -164,6 +195,8 @@ export default function SignageOrdersDashboard() {
   const [bulkStatusBusy, setBulkStatusBusy] = useState(false)
   const [allMatchingSelected, setAllMatchingSelected] = useState(false)
   const [allMatchingBusy, setAllMatchingBusy] = useState(false)
+  const [providerJobs, setProviderJobs] = useState<ProviderJobSummary[]>([])
+  const [collapsedStashpoints, setCollapsedStashpoints] = useState<Set<string>>(new Set())
 
   const buildQueryParams = useCallback(
     (opts?: { includePage?: boolean; includeLimit?: boolean; idsOnly?: boolean }) => {
@@ -313,9 +346,25 @@ export default function SignageOrdersDashboard() {
   }
 
   const openOrder = async (id: number) => {
-    const res = await fetch(`/api/dashboard/signage/orders/${id}`)
-    const data = await res.json()
-    if (data.order) setSelected(data.order)
+    setProviderJobs([])
+    const [orderRes, jobsRes] = await Promise.all([
+      fetch(`/api/dashboard/signage/orders/${id}`),
+      fetch(`/api/dashboard/signage/orders/${id}/fulfilment`, { cache: 'no-store' }),
+    ])
+    const orderData = await orderRes.json().catch(() => ({}))
+    const jobsData = await jobsRes.json().catch(() => ({}))
+    if (orderData.order) setSelected(orderData.order)
+    if (Array.isArray(jobsData.jobs)) setProviderJobs(jobsData.jobs as ProviderJobSummary[])
+  }
+
+  const refreshProviderJobs = async (id: number) => {
+    try {
+      const res = await fetch(`/api/dashboard/signage/orders/${id}/fulfilment`, { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      if (Array.isArray(data.jobs)) setProviderJobs(data.jobs as ProviderJobSummary[])
+    } catch {
+      /* ignore */
+    }
   }
 
   const updateStatus = async (id: number, status: string) => {
@@ -437,6 +486,64 @@ export default function SignageOrdersDashboard() {
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const allVisibleSelected = orders.length > 0 && orders.every((o) => selectedIds.has(o.id))
 
+  const groupedOrders = useMemo(() => {
+    type Group = {
+      key: string
+      stashpointId: string | null
+      businessName: string
+      city: string | null
+      orders: Order[]
+    }
+    const map = new Map<string, Group>()
+    const order: string[] = []
+    for (const o of orders) {
+      const stashpointKey = o.stashpoint_id?.trim()
+        ? `sp:${o.stashpoint_id.trim()}`
+        : `bn:${(o.business_name || 'Unknown').trim().toLowerCase()}`
+      if (!map.has(stashpointKey)) {
+        map.set(stashpointKey, {
+          key: stashpointKey,
+          stashpointId: o.stashpoint_id ?? null,
+          businessName: o.business_name || 'Unknown business',
+          city: o.city ?? null,
+          orders: [],
+        })
+        order.push(stashpointKey)
+      }
+      map.get(stashpointKey)!.orders.push(o)
+    }
+    return order.map((k) => map.get(k)!).filter(Boolean)
+  }, [orders])
+
+  const toggleStashpointGroup = (key: string) => {
+    setCollapsedStashpoints((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const toggleGroupSelection = (group: { orders: Order[] }, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const o of group.orders) {
+        if (checked) next.add(o.id)
+        else next.delete(o.id)
+      }
+      return next
+    })
+    setAllMatchingSelected(false)
+  }
+
+  const itemHasActiveProviderJob = (orderItemId: number) =>
+    providerJobs.some(
+      (j) => j.order_item_id === orderItemId && ACTIVE_PROVIDER_JOB_STATUSES.has(j.status)
+    )
+
+  const itemProviderJobs = (orderItemId: number) =>
+    providerJobs.filter((j) => j.order_item_id === orderItemId)
+
   useEffect(() => {
     void (async () => {
       const citiesRes = await fetch('/api/dashboard/cities')
@@ -446,23 +553,12 @@ export default function SignageOrdersDashboard() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-dashboard-canvas p-4 sm:p-6">
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Signage Orders</h1>
-            <p className="text-sm text-slate-500">Track, review, and clean up signage order submissions.</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <a href="/dashboard/signage/city-activation" className="text-sm text-blue-600 hover:underline">
-              City activation
-            </a>
-            <a href="/dashboard/signage/catalog" className="text-sm text-blue-600 hover:underline">
-              Manage catalog
-            </a>
-            <a href="/dashboard/signage/links" className="text-sm text-blue-600 hover:underline">
-              View links
-            </a>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">Signage orders</h1>
+            <p className="text-sm text-slate-600">Track, review, and clean up signage order submissions.</p>
           </div>
         </div>
 
@@ -678,44 +774,102 @@ export default function SignageOrdersDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Orders ({total})</CardTitle>
+            <CardTitle className="text-base">
+              Orders ({total}) · {groupedOrders.length} stashpoint{groupedOrders.length === 1 ? '' : 's'}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
             {loading ? (
               <p className="text-sm text-slate-400">Loading orders...</p>
             ) : orders.length === 0 ? (
               <p className="text-sm text-slate-400">No orders found.</p>
             ) : (
-              orders.map((o) => (
-                <div key={o.id} className="flex items-center justify-between rounded border bg-white px-3 py-2">
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(o.id)}
-                      onChange={(e) => toggleOrderSelection(o.id, e.target.checked)}
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={`Select order ${o.id}`}
-                      className="mt-1"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium">{o.business_name}</p>
-                        <SourceBadge source={o.source} />
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        #{o.id} • {o.city || '—'} • {o.contact_name}
-                        {o.stashpoint_id && <> • SP {o.stashpoint_id}</>}
-                      </p>
+              groupedOrders.map((group) => {
+                const collapsed = collapsedStashpoints.has(group.key)
+                const allGroupSelected = group.orders.every((o) => selectedIds.has(o.id))
+                const someGroupSelected = group.orders.some((o) => selectedIds.has(o.id))
+                return (
+                  <div
+                    key={group.key}
+                    className="overflow-hidden rounded-xl border border-pink-100 bg-white shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-blush/60 via-white to-white px-4 py-3">
+                      <label className="flex flex-1 cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-primary/30 text-primary"
+                          checked={allGroupSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = !allGroupSelected && someGroupSelected
+                          }}
+                          onChange={(e) => toggleGroupSelection(group, e.target.checked)}
+                          aria-label={`Select all orders for ${group.businessName}`}
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-primary">
+                            {group.businessName}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {group.city || '—'}
+                            {group.stashpointId && <> · SP {group.stashpointId}</>}
+                            {' · '}
+                            {group.orders.length} order{group.orders.length === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                      </label>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => toggleStashpointGroup(group.key)}
+                        className="text-primary"
+                        aria-label={collapsed ? 'Expand orders' : 'Collapse orders'}
+                      >
+                        {collapsed ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronUp className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
+                    {!collapsed && (
+                      <div className="divide-y divide-pink-50">
+                        {group.orders.map((o) => (
+                          <div
+                            key={o.id}
+                            className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-blush/20"
+                          >
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(o.id)}
+                                onChange={(e) => toggleOrderSelection(o.id, e.target.checked)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Select order ${o.id}`}
+                                className="mt-1 h-4 w-4 rounded border-primary/30 text-primary"
+                              />
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-medium text-slate-800">
+                                    Order #{o.id}
+                                  </p>
+                                  <SourceBadge source={o.source} />
+                                  <StatusBadge status={o.status} />
+                                </div>
+                                <p className="text-xs text-slate-500">
+                                  {o.contact_name} · {new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </p>
+                              </div>
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => openOrder(o.id)}>
+                              View
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={o.status} />
-                    <Button size="sm" variant="outline" onClick={() => openOrder(o.id)}>
-                      View
-                    </Button>
-                  </div>
-                </div>
-              ))
+                )
+              })
             )}
 
             <div className="mt-4 flex items-center justify-end gap-2">
@@ -744,13 +898,19 @@ export default function SignageOrdersDashboard() {
       </div>
 
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelected(null)}>
-          <Card className="max-h-[90vh] w-full max-w-3xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-start justify-between">
-              <CardTitle className="text-lg">
-                Order #{selected.id} • {selected.business_name}
-              </CardTitle>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary/30 p-4 backdrop-blur-sm" onClick={() => setSelected(null)}>
+          <Card className="max-h-[90vh] w-full max-w-3xl overflow-y-auto border-pink-100" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-start justify-between bg-gradient-to-r from-blush/60 via-white to-white">
+              <div>
+                <CardTitle className="text-lg text-primary">
+                  Order #{selected.id} · {selected.business_name}
+                </CardTitle>
+                <p className="mt-1 text-xs text-slate-500">
+                  {selected.city || '—'}
+                  {selected.stashpoint_id && <> · SP {selected.stashpoint_id}</>}
+                </p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(null)} className="text-primary">
                 Close
               </Button>
             </CardHeader>
@@ -787,30 +947,91 @@ export default function SignageOrdersDashboard() {
               </div>
 
               <div>
-                <p className="mb-2 text-sm font-medium">Items</p>
-                <div className="space-y-2">
-                  {selected.items.map((it) => (
-                    <div key={it.id} className="rounded border bg-slate-50 p-2 text-sm">
-                      <p>{it.item_name_snapshot} × {it.quantity}</p>
-                      {Object.keys(it.selected_options || {}).length > 0 && (
-                        <p className="text-xs text-slate-600">{JSON.stringify(it.selected_options)}</p>
-                      )}
-                      {it.generated_asset_link && (
-                        <a
-                          href={it.generated_asset_link}
-                          className="text-xs text-blue-600 hover:underline"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open generated asset
-                        </a>
-                      )}
-                      {it.asset_error && (
-                        <p className="text-xs text-red-600">Error: {it.asset_error}</p>
-                      )}
-                    </div>
-                  ))}
+                <p className="mb-3 text-sm font-medium text-primary">
+                  Signage pieces ({selected.items.length})
+                </p>
+                <div className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2">
+                  {selected.items.map((it) => {
+                    const automated = itemHasActiveProviderJob(it.id)
+                    const jobs = itemProviderJobs(it.id)
+                    const previewSrc = driveImageSrc(it.generated_asset_link)
+                    return (
+                      <div
+                        key={it.id}
+                        className="relative flex w-44 shrink-0 snap-start flex-col rounded-xl border border-pink-100 bg-white p-2 shadow-sm"
+                      >
+                        <div className="relative flex h-32 items-center justify-center overflow-hidden rounded-lg bg-blush/30">
+                          {previewSrc ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={previewSrc}
+                              alt={it.item_name_snapshot}
+                              className="h-full w-full object-contain"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                                const sib = e.currentTarget.nextElementSibling as HTMLElement | null
+                                if (sib) sib.style.display = 'flex'
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-slate-400"
+                            style={{ display: previewSrc ? 'none' : 'flex' }}
+                          >
+                            <ImageOff className="h-5 w-5" />
+                            <span>No preview</span>
+                          </div>
+                          {automated && (
+                            <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-green-500/95 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Auto
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-xs font-medium text-slate-800">
+                          {it.item_name_snapshot}
+                        </p>
+                        <p className="text-[10px] text-slate-500">Qty {it.quantity}</p>
+                        {Object.keys(it.selected_options || {}).length > 0 && (
+                          <p
+                            className="mt-1 line-clamp-2 text-[10px] text-slate-400"
+                            title={JSON.stringify(it.selected_options)}
+                          >
+                            {Object.entries(it.selected_options)
+                              .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join('/') : v}`)
+                              .join(' · ')}
+                          </p>
+                        )}
+                        {jobs.length > 0 && (
+                          <p className="mt-1 truncate text-[10px] text-green-700">
+                            {jobs[0].provider} · {jobs[0].status.replace(/_/g, ' ')}
+                          </p>
+                        )}
+                        {it.generated_asset_link && (
+                          <a
+                            href={it.generated_asset_link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 truncate text-[10px] text-primary underline"
+                          >
+                            Open in Drive
+                          </a>
+                        )}
+                        {it.asset_error && (
+                          <p className="mt-1 line-clamp-2 text-[10px] text-red-600">{it.asset_error}</p>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
+              </div>
+
+              <div className="border-t border-pink-100 pt-3">
+                <SignageOrderProviderJobs
+                  orderId={selected.id}
+                  onJobsChange={() => void refreshProviderJobs(selected.id)}
+                />
               </div>
 
               <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-end">

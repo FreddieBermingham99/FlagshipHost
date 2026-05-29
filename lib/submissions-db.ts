@@ -230,6 +230,53 @@ CREATE TABLE IF NOT EXISTS short_link_cache (
   provider TEXT NOT NULL DEFAULT 'tinyurl',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Print provider mapping: how each catalog item (optionally per option combo) routes
+-- to a Solopress product+attributes or a Helloprint variantKey.
+CREATE TABLE IF NOT EXISTS signage_catalog_provider_mappings (
+  id SERIAL PRIMARY KEY,
+  catalog_item_id INTEGER NOT NULL REFERENCES signage_catalog_items(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  provider_product TEXT,
+  provider_attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
+  option_match JSONB,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  priority INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_mappings_item
+  ON signage_catalog_provider_mappings (catalog_item_id, is_active);
+
+-- One row per provider job placed for a signage_order_item.
+CREATE TABLE IF NOT EXISTS signage_provider_jobs (
+  id SERIAL PRIMARY KEY,
+  order_item_id INTEGER NOT NULL REFERENCES signage_order_items(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  provider_job_ref TEXT NOT NULL,
+  status TEXT NOT NULL,
+  raw_provider_status TEXT,
+  tracking_number TEXT,
+  tracking_url TEXT,
+  delivery_date DATE,
+  cost_cents INTEGER,
+  cost_currency VARCHAR(3),
+  last_payload JSONB,
+  last_response JSONB,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_jobs_unique
+  ON signage_provider_jobs (provider, provider_job_ref);
+CREATE INDEX IF NOT EXISTS idx_provider_jobs_order_item
+  ON signage_provider_jobs (order_item_id);
+CREATE INDEX IF NOT EXISTS idx_provider_jobs_status
+  ON signage_provider_jobs (status);
+
+ALTER TABLE signage_order_items ADD COLUMN IF NOT EXISTS pdf_drive_file_id TEXT;
+ALTER TABLE signage_order_items ADD COLUMN IF NOT EXISTS pdf_public_url TEXT;
+ALTER TABLE signage_order_items ADD COLUMN IF NOT EXISTS pdf_md5 TEXT;
 `
 
 /** Run one statement at a time — pooled / serverless Postgres often rejects multi-statement `query()` strings. */
@@ -240,16 +287,45 @@ function splitSqlStatements(sql: string): string[] {
     .filter((s) => s.length > 0)
 }
 
-let tableEnsured = false
+/**
+ * Singleton ensure: one in-flight promise per process. Without this, two concurrent
+ * requests can both decide the schema needs creating and race on
+ *   CREATE TABLE IF NOT EXISTS <t> (id SERIAL PRIMARY KEY, …)
+ * Postgres has a known race window where the auto-created sequence (`<t>_id_seq`)
+ * can collide in `pg_class_relname_nsp_index` and one side gets 23505.
+ *
+ * We also wrap the DDL in an advisory transaction lock so concurrent *processes*
+ * (e.g. serverless cold starts) serialise too — only one can run the DDL at once.
+ */
+let ensureTablePromise: Promise<void> | null = null
+
+/** Arbitrary fixed key; chosen once so all instances of this app share the lock. */
+const DDL_ADVISORY_LOCK_KEY = 8917240394728
 
 async function ensureTable(): Promise<void> {
-  if (tableEnsured) return
-  await withClient(async (c) => {
-    for (const stmt of splitSqlStatements(DDL)) {
-      await c.query(stmt)
-    }
+  if (ensureTablePromise) return ensureTablePromise
+  ensureTablePromise = (async () => {
+    await withClient(async (c) => {
+      await c.query('BEGIN')
+      try {
+        // Transaction-scoped lock auto-releases on COMMIT/ROLLBACK.
+        await c.query('SELECT pg_advisory_xact_lock($1::bigint)', [DDL_ADVISORY_LOCK_KEY])
+        for (const stmt of splitSqlStatements(DDL)) {
+          await c.query(stmt)
+        }
+        await c.query('COMMIT')
+      } catch (err) {
+        await c.query('ROLLBACK').catch(() => {})
+        throw err
+      }
+    })
+  })().catch((err) => {
+    // Reset so the next caller can retry — otherwise a transient DB blip would
+    // permanently brick the process.
+    ensureTablePromise = null
+    throw err
   })
-  tableEnsured = true
+  return ensureTablePromise
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +379,12 @@ export type SubmissionFilters = {
   stashpoint_id?: string
   tier?: string[]
   signage?: string[]
+  /**
+   * Restrict by `submissions.source`. The dashboard "Submissions" page passes
+   * `['flagship', 'programme', 'programme_pro']` here so signage / city-activation
+   * orders are excluded — those have their own page.
+   */
+  source?: string[]
   search?: string
   page?: number
   limit?: number
@@ -354,6 +436,12 @@ export async function listSubmissions(
   if (filters.status && filters.status.length > 0) {
     conditions.push(`status = ANY($${i}::text[])`)
     params.push(filters.status)
+    i++
+  }
+
+  if (filters.source && filters.source.length > 0) {
+    conditions.push(`source = ANY($${i}::text[])`)
+    params.push(filters.source)
     i++
   }
 
@@ -1170,6 +1258,9 @@ export type SignageOrderItemRow = {
   generated_asset_drive_file_id: string | null
   generated_asset_link: string | null
   asset_error: string | null
+  pdf_drive_file_id: string | null
+  pdf_public_url: string | null
+  pdf_md5: string | null
 }
 
 export type SignageOrderWithItems = SignageOrderRow & {
@@ -1624,6 +1715,8 @@ export type SignageDigestOrderRow = {
 export async function listSignageOrdersForDigest(sinceIso: string): Promise<SignageDigestOrderRow[]> {
   await ensureTable()
   return withClient(async (c) => {
+    // Exclude items that have already been placed with a print-on-demand provider
+    // (those will be fulfilled automatically; the manual ops digest only covers the rest).
     const res = await c.query<{
       id: number
       created_at: string
@@ -1643,6 +1736,11 @@ export async function listSignageOrdersForDigest(sinceIso: string): Promise<Sign
        FROM signage_orders so
        JOIN signage_order_items soi ON soi.order_id = so.id
        WHERE so.created_at > $1::timestamptz
+         AND NOT EXISTS (
+           SELECT 1 FROM signage_provider_jobs spj
+           WHERE spj.order_item_id = soi.id
+             AND spj.status NOT IN ('error', 'cancelled', 'artwork_rejected')
+         )
        ORDER BY so.created_at ASC, so.id ASC, soi.id ASC`,
       [sinceIso]
     )
@@ -1684,5 +1782,389 @@ export async function listSignageOrdersForDigest(sinceIso: string): Promise<Sign
       })
     }
     return [...grouped.values()]
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Print provider mapping: catalog item → Solopress / Helloprint SKU
+// ---------------------------------------------------------------------------
+
+export type PrintProviderName = 'solopress' | 'helloprint' | 'cloudprinter'
+
+export type SignageCatalogProviderMappingRow = {
+  id: number
+  catalog_item_id: number
+  provider: PrintProviderName
+  /** Solopress product name (e.g. 'Flags'). Null for Helloprint. */
+  provider_product: string | null
+  /**
+   * Provider-specific attributes:
+   *  - Solopress: { material, size, colours, noSides, quantity, turnaround, ... }
+   *  - Helloprint: { variantKey, serviceLevel }
+   */
+  provider_attributes: Record<string, unknown>
+  /** When set, this mapping only applies to a line whose selected_options match every key. */
+  option_match: Record<string, string | string[]> | null
+  is_active: boolean
+  /** Lower wins when multiple mappings match the same line. */
+  priority: number
+  created_at: string
+  updated_at: string
+}
+
+export type SignageCatalogProviderMappingInsert = {
+  catalog_item_id: number
+  provider: PrintProviderName
+  provider_product?: string | null
+  provider_attributes?: Record<string, unknown>
+  option_match?: Record<string, string | string[]> | null
+  is_active?: boolean
+  priority?: number
+}
+
+export type SignageCatalogProviderMappingUpdate = Partial<
+  Omit<SignageCatalogProviderMappingInsert, 'catalog_item_id'>
+>
+
+export async function listProviderMappingsForItem(
+  catalogItemId: number
+): Promise<SignageCatalogProviderMappingRow[]> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageCatalogProviderMappingRow>(
+      `SELECT * FROM signage_catalog_provider_mappings
+       WHERE catalog_item_id = $1
+       ORDER BY priority ASC, id ASC`,
+      [catalogItemId]
+    )
+    return res.rows
+  })
+}
+
+export async function listActiveProviderMappings(): Promise<SignageCatalogProviderMappingRow[]> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageCatalogProviderMappingRow>(
+      `SELECT * FROM signage_catalog_provider_mappings
+       WHERE is_active = TRUE
+       ORDER BY catalog_item_id ASC, priority ASC, id ASC`
+    )
+    return res.rows
+  })
+}
+
+export async function createProviderMapping(
+  data: SignageCatalogProviderMappingInsert
+): Promise<SignageCatalogProviderMappingRow> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageCatalogProviderMappingRow>(
+      `INSERT INTO signage_catalog_provider_mappings
+        (catalog_item_id, provider, provider_product, provider_attributes, option_match, is_active, priority)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+       RETURNING *`,
+      [
+        data.catalog_item_id,
+        data.provider,
+        data.provider_product?.trim() || null,
+        JSON.stringify(data.provider_attributes ?? {}),
+        data.option_match ? JSON.stringify(data.option_match) : null,
+        data.is_active ?? true,
+        Math.floor(data.priority ?? 0),
+      ]
+    )
+    return res.rows[0]
+  })
+}
+
+export async function updateProviderMapping(
+  id: number,
+  data: SignageCatalogProviderMappingUpdate
+): Promise<SignageCatalogProviderMappingRow | null> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageCatalogProviderMappingRow>(
+      `UPDATE signage_catalog_provider_mappings SET
+        provider = COALESCE($1, provider),
+        provider_product = COALESCE($2, provider_product),
+        provider_attributes = COALESCE($3::jsonb, provider_attributes),
+        option_match = CASE WHEN $4::text IS NULL THEN option_match ELSE $5::jsonb END,
+        is_active = COALESCE($6, is_active),
+        priority = COALESCE($7, priority),
+        updated_at = now()
+       WHERE id = $8
+       RETURNING *`,
+      [
+        data.provider ?? null,
+        data.provider_product !== undefined ? data.provider_product?.trim() || null : null,
+        data.provider_attributes !== undefined ? JSON.stringify(data.provider_attributes) : null,
+        data.option_match === undefined ? null : 'set',
+        data.option_match === undefined ? null : data.option_match === null ? null : JSON.stringify(data.option_match),
+        data.is_active ?? null,
+        data.priority === undefined ? null : Math.floor(data.priority),
+        id,
+      ]
+    )
+    return res.rows[0] ?? null
+  })
+}
+
+export async function deleteProviderMapping(id: number): Promise<boolean> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query('DELETE FROM signage_catalog_provider_mappings WHERE id = $1', [id])
+    return (res.rowCount ?? 0) > 0
+  })
+}
+
+/**
+ * Pick the best mapping for a given line: lowest `priority` among rows whose `option_match`
+ * (when set) is satisfied by `selectedOptions`. A null option_match is a catch-all.
+ */
+export function resolveProviderMappingForOptions(
+  mappings: SignageCatalogProviderMappingRow[],
+  selectedOptions: Record<string, string | string[]>
+): SignageCatalogProviderMappingRow | null {
+  const norm = (v: string | string[] | undefined): string =>
+    (Array.isArray(v) ? v[0] : v ?? '').toString().trim().toLowerCase()
+  const candidates = mappings.filter((m) => {
+    if (!m.is_active) return false
+    if (!m.option_match) return true
+    const om = m.option_match as Record<string, string | string[]>
+    for (const k of Object.keys(om)) {
+      if (norm(om[k]) !== norm(selectedOptions[k])) return false
+    }
+    return true
+  })
+  if (candidates.length === 0) return null
+  return candidates.sort((a, b) => a.priority - b.priority || a.id - b.id)[0]
+}
+
+// ---------------------------------------------------------------------------
+// Provider jobs: one row per Solopress/Helloprint job placed for an order item
+// ---------------------------------------------------------------------------
+
+export type ProviderJobStatus =
+  | 'placed'
+  | 'in_production'
+  | 'shipped'
+  | 'delivered'
+  | 'on_hold'
+  | 'attention'
+  | 'artwork_rejected'
+  | 'cancelled'
+  | 'error'
+
+export type SignageProviderJobRow = {
+  id: number
+  order_item_id: number
+  provider: PrintProviderName
+  provider_job_ref: string
+  status: ProviderJobStatus
+  raw_provider_status: string | null
+  tracking_number: string | null
+  tracking_url: string | null
+  delivery_date: string | null
+  cost_cents: number | null
+  cost_currency: string | null
+  last_payload: Record<string, unknown> | null
+  last_response: Record<string, unknown> | null
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SignageProviderJobInsert = {
+  order_item_id: number
+  provider: PrintProviderName
+  provider_job_ref: string
+  status: ProviderJobStatus
+  raw_provider_status?: string | null
+  tracking_number?: string | null
+  tracking_url?: string | null
+  delivery_date?: string | null
+  cost_cents?: number | null
+  cost_currency?: string | null
+  last_payload?: Record<string, unknown> | null
+  last_response?: Record<string, unknown> | null
+  last_error?: string | null
+}
+
+export async function insertProviderJob(
+  data: SignageProviderJobInsert
+): Promise<SignageProviderJobRow> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageProviderJobRow>(
+      `INSERT INTO signage_provider_jobs
+        (order_item_id, provider, provider_job_ref, status, raw_provider_status,
+         tracking_number, tracking_url, delivery_date, cost_cents, cost_currency,
+         last_payload, last_response, last_error)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13)
+       ON CONFLICT (provider, provider_job_ref)
+       DO UPDATE SET
+         status = EXCLUDED.status,
+         raw_provider_status = EXCLUDED.raw_provider_status,
+         tracking_number = COALESCE(EXCLUDED.tracking_number, signage_provider_jobs.tracking_number),
+         tracking_url = COALESCE(EXCLUDED.tracking_url, signage_provider_jobs.tracking_url),
+         delivery_date = COALESCE(EXCLUDED.delivery_date, signage_provider_jobs.delivery_date),
+         cost_cents = COALESCE(EXCLUDED.cost_cents, signage_provider_jobs.cost_cents),
+         cost_currency = COALESCE(EXCLUDED.cost_currency, signage_provider_jobs.cost_currency),
+         last_payload = EXCLUDED.last_payload,
+         last_response = EXCLUDED.last_response,
+         last_error = EXCLUDED.last_error,
+         updated_at = now()
+       RETURNING *`,
+      [
+        data.order_item_id,
+        data.provider,
+        data.provider_job_ref,
+        data.status,
+        data.raw_provider_status ?? null,
+        data.tracking_number ?? null,
+        data.tracking_url ?? null,
+        data.delivery_date ?? null,
+        data.cost_cents ?? null,
+        data.cost_currency ?? null,
+        data.last_payload ? JSON.stringify(data.last_payload) : null,
+        data.last_response ? JSON.stringify(data.last_response) : null,
+        data.last_error ?? null,
+      ]
+    )
+    return res.rows[0]
+  })
+}
+
+export async function updateProviderJobByRef(
+  provider: PrintProviderName,
+  providerJobRef: string,
+  data: {
+    status?: ProviderJobStatus
+    raw_provider_status?: string | null
+    tracking_number?: string | null
+    tracking_url?: string | null
+    delivery_date?: string | null
+    last_error?: string | null
+    last_response?: Record<string, unknown> | null
+  }
+): Promise<SignageProviderJobRow | null> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageProviderJobRow>(
+      `UPDATE signage_provider_jobs SET
+        status = COALESCE($1, status),
+        raw_provider_status = COALESCE($2, raw_provider_status),
+        tracking_number = COALESCE($3, tracking_number),
+        tracking_url = COALESCE($4, tracking_url),
+        delivery_date = COALESCE($5::date, delivery_date),
+        last_error = $6,
+        last_response = COALESCE($7::jsonb, last_response),
+        updated_at = now()
+       WHERE provider = $8 AND provider_job_ref = $9
+       RETURNING *`,
+      [
+        data.status ?? null,
+        data.raw_provider_status ?? null,
+        data.tracking_number ?? null,
+        data.tracking_url ?? null,
+        data.delivery_date ?? null,
+        data.last_error ?? null,
+        data.last_response ? JSON.stringify(data.last_response) : null,
+        provider,
+        providerJobRef,
+      ]
+    )
+    return res.rows[0] ?? null
+  })
+}
+
+export async function listProviderJobsForOrderItem(
+  orderItemId: number
+): Promise<SignageProviderJobRow[]> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageProviderJobRow>(
+      `SELECT * FROM signage_provider_jobs
+       WHERE order_item_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [orderItemId]
+    )
+    return res.rows
+  })
+}
+
+export async function listProviderJobsForOrder(
+  orderId: number
+): Promise<SignageProviderJobRow[]> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageProviderJobRow>(
+      `SELECT spj.*
+       FROM signage_provider_jobs spj
+       JOIN signage_order_items soi ON soi.id = spj.order_item_id
+       WHERE soi.order_id = $1
+       ORDER BY spj.created_at DESC, spj.id DESC`,
+      [orderId]
+    )
+    return res.rows
+  })
+}
+
+export async function getProviderJobByRef(
+  provider: PrintProviderName,
+  providerJobRef: string
+): Promise<(SignageProviderJobRow & { order_id: number }) | null> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageProviderJobRow & { order_id: number }>(
+      `SELECT spj.*, soi.order_id
+       FROM signage_provider_jobs spj
+       JOIN signage_order_items soi ON soi.id = spj.order_item_id
+       WHERE spj.provider = $1 AND spj.provider_job_ref = $2
+       LIMIT 1`,
+      [provider, providerJobRef]
+    )
+    return res.rows[0] ?? null
+  })
+}
+
+export async function updateSignageOrderItemPdf(
+  itemId: number,
+  data: {
+    pdf_drive_file_id?: string | null
+    pdf_public_url?: string | null
+    pdf_md5?: string | null
+  }
+): Promise<void> {
+  await ensureTable()
+  await withClient(async (c) => {
+    await c.query(
+      `UPDATE signage_order_items
+       SET pdf_drive_file_id = COALESCE($1, pdf_drive_file_id),
+           pdf_public_url = COALESCE($2, pdf_public_url),
+           pdf_md5 = COALESCE($3, pdf_md5)
+       WHERE id = $4`,
+      [
+        data.pdf_drive_file_id ?? null,
+        data.pdf_public_url ?? null,
+        data.pdf_md5 ?? null,
+        itemId,
+      ]
+    )
+  })
+}
+
+export async function updateSignageOrderFulfillmentStatus(
+  id: number,
+  status: string
+): Promise<void> {
+  await ensureTable()
+  await withClient(async (c) => {
+    await c.query(
+      `UPDATE signage_orders
+       SET fulfillment_status = $1, updated_at = now()
+       WHERE id = $2`,
+      [status, id]
+    )
   })
 }

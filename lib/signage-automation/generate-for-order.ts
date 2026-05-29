@@ -13,6 +13,7 @@ import {
 import { matchOrderOptionsToSelection } from '@/lib/signage-automation/match-catalog-options'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
 import { getAutomationConfig } from '@/lib/signage-automation/config'
+import { fulfilSignageOrder } from '@/lib/signage-automation/fulfil-order'
 
 type AutomationConfig = Awaited<ReturnType<typeof getAutomationConfig>>
 import { buildQrUrl } from '@/lib/signage-automation/qr-url'
@@ -339,8 +340,54 @@ export async function generateSignageAssetsForOrder(
   }
 }
 
+/**
+ * Background pipeline triggered the moment a host submits a signage order:
+ *   1. Render + upload PNGs (per item).
+ *   2. Auto-fulfil any items that have an active print-provider mapping —
+ *      renders PNG → PDF, MD5s it, uploads to Drive, posts to Cloudprinter /
+ *      Solopress / Helloprint.
+ *
+ * Fulfilment is idempotent (alreadyPlaced check in fulfilSignageOrder) and
+ * per-item, so partial generation failures do not block successful items. If
+ * the catalog item has no active mapping, the item falls through to the
+ * manual ops email flow as before — provider integration is strictly additive.
+ */
 export function queueGenerateSignageForOrder(orderId: number, options?: GenerateSignageAssetsOptions): void {
-  void generateSignageAssetsForOrder(orderId, options).catch((err) => {
-    console.error('[signage automation] generation failed', { orderId, err })
-  })
+  void (async () => {
+    try {
+      const result = await generateSignageAssetsForOrder(orderId, options)
+      if (result.itemUploads.length === 0) {
+        console.warn('[signage automation] no PNGs uploaded, skipping auto-fulfilment', {
+          orderId,
+          error: result.error,
+        })
+        return
+      }
+      // Pick the folder for PDF uploads — caller-supplied override wins; else
+      // reuse the first item's PNG folder; else fall back to the automation root.
+      let uploadFolderId =
+        String(options?.uploadFolderId || '').trim() ||
+        String(result.itemUploads[0]?.folderId || '').trim()
+      if (!uploadFolderId) {
+        const settings = options?.automationConfig ?? (await getAutomationConfig())
+        uploadFolderId = String(settings.google_drive_folder_id || '').trim()
+      }
+      if (!uploadFolderId) {
+        console.warn('[signage automation] no Drive folder available for auto-fulfilment', { orderId })
+        return
+      }
+      const fulfil = await fulfilSignageOrder(orderId, { uploadFolderId })
+      const placedCount = fulfil.items.filter((i) => i.ok && i.providerJobRef).length
+      const failedCount = fulfil.items.filter((i) => !i.ok && i.attempted).length
+      console.log('[signage automation] auto-fulfilment complete', {
+        orderId,
+        rollup: fulfil.fulfillmentStatus,
+        placed: placedCount,
+        failed: failedCount,
+        skipped: fulfil.items.length - placedCount - failedCount,
+      })
+    } catch (err) {
+      console.error('[signage automation] generation/fulfilment pipeline failed', { orderId, err })
+    }
+  })()
 }

@@ -215,6 +215,20 @@ export async function ensureDriveSubfolder(params: {
   return { folderId: id, webViewLink: link }
 }
 
+/** Download raw file bytes via the Drive API (avoids public-link HTML interstitials). */
+export async function downloadDriveFileBuffer(fileId: string): Promise<Buffer> {
+  const drive = getDriveClient()
+  const res = await drive.files.get(
+    { fileId, alt: 'media', supportsAllDrives: true },
+    { responseType: 'arraybuffer' }
+  )
+  const data = res.data as ArrayBuffer | undefined
+  if (!data || data.byteLength === 0) {
+    throw new Error(`Drive file ${fileId} returned empty content`)
+  }
+  return Buffer.from(data)
+}
+
 export async function uploadSignagePngToDrive(params: {
   fileNameBase: string
   pngBuffer: Buffer
@@ -245,4 +259,77 @@ export async function uploadSignagePngToDrive(params: {
     supportsAllDrives: true,
   })
   return { fileId: created.data.id || '', webViewLink: created.data.webViewLink || '' }
+}
+
+/**
+ * Make a Drive file publicly readable (anyone with the link) and return a *direct*
+ * download URL print providers can fetch without authentication.
+ *
+ * Uses `https://drive.google.com/uc?id=<id>&export=download` because that URL streams
+ * the raw bytes (Solopress / Helloprint expect a direct artwork URL, not the Drive viewer).
+ */
+export async function makeDriveFilePublic(fileId: string): Promise<{ publicUrl: string }> {
+  const drive = getDriveClient()
+  try {
+    await drive.permissions.create({
+      fileId,
+      requestBody: { role: 'reader', type: 'anyone' },
+      supportsAllDrives: true,
+    })
+  } catch (err) {
+    // Permission may already exist; surface unexpected errors but ignore "already exists" cases.
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!/already|exists/i.test(msg)) {
+      throw err
+    }
+  }
+  return { publicUrl: `https://drive.google.com/uc?id=${encodeURIComponent(fileId)}&export=download` }
+}
+
+/**
+ * Upload a PDF buffer to Drive and return both the Drive id and a public direct-download URL.
+ * Designed for handing artwork to print-on-demand providers.
+ */
+export async function uploadSignagePdfToDrive(params: {
+  fileNameBase: string
+  pdfBuffer: Buffer
+  folderId: string
+  /** When true (default), the file is made publicly readable and a direct URL is returned. */
+  makePublic?: boolean
+}): Promise<{ fileId: string; webViewLink: string; publicUrl: string }> {
+  const drive = getDriveClient()
+  const name = `${sanitizeFileName(params.fileNameBase)}.pdf`
+  const searchRes = await drive.files.list({
+    q: `name='${name.replace(/'/g, "\\'")}' and '${params.folderId}' in parents and trashed=false`,
+    fields: 'files(id,name,webViewLink)',
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  })
+  const existing = searchRes.data.files?.[0]
+  let fileId = ''
+  let webViewLink = ''
+  if (existing?.id) {
+    const updated = await drive.files.update({
+      fileId: existing.id,
+      media: { mimeType: 'application/pdf', body: Readable.from(params.pdfBuffer) },
+      fields: 'id,webViewLink',
+      supportsAllDrives: true,
+    })
+    fileId = updated.data.id || existing.id
+    webViewLink = updated.data.webViewLink || ''
+  } else {
+    const created = await drive.files.create({
+      requestBody: { name, parents: [params.folderId], mimeType: 'application/pdf' },
+      media: { mimeType: 'application/pdf', body: Readable.from(params.pdfBuffer) },
+      fields: 'id,webViewLink',
+      supportsAllDrives: true,
+    })
+    fileId = created.data.id || ''
+    webViewLink = created.data.webViewLink || ''
+  }
+  let publicUrl = ''
+  if (params.makePublic !== false && fileId) {
+    publicUrl = (await makeDriveFilePublic(fileId)).publicUrl
+  }
+  return { fileId, webViewLink, publicUrl }
 }

@@ -172,6 +172,95 @@ Change cache duration in `app/flagship/[slug]/page.tsx`:
 export const revalidate = 300 // seconds
 ```
 
+## Print-on-demand fulfilment (Solopress + Helloprint + Cloudprinter)
+
+Signage orders can be routed automatically to a print-on-demand provider so the team
+no longer has to forward artwork manually. Items without an active mapping continue
+to flow through the existing ops digest / fast-track emails — provider integration
+is strictly additive.
+
+### One-time setup
+
+1. **Add API keys to `.env.local`** (see `.env.example`):
+   - `SOLOPRESS_API_KEY`, `SOLOPRESS_WEBHOOK_SECRET`, `SOLOPRESS_ENABLED=true`
+   - `HELLOPRINT_API_KEY`, `HELLOPRINT_WEBHOOK_TOKEN`, `HELLOPRINT_ENABLED=true`
+   - `CLOUDPRINTER_API_KEY`, `CLOUDPRINTER_WEBHOOK_APIKEY`, `CLOUDPRINTER_ENABLED=true`
+2. **Register the Solopress webhook** once per environment:
+   ```bash
+   SOLOPRESS_WEBHOOK_URL=https://stasher.example.com/api/webhooks/solopress \
+   SOLOPRESS_WEBHOOK_SECRET="$(openssl rand -hex 32)" \
+   npm run register-solopress-webhook
+   ```
+   Copy the returned `webhookID` into `SOLOPRESS_WEBHOOK_ID`.
+3. **Tell Helloprint the callback URL** during onboarding:
+   `https://stasher.example.com/api/webhooks/helloprint/<HELLOPRINT_WEBHOOK_TOKEN>`
+   (Helloprint callbacks are unsigned; the token in the path is the only
+   authentication, so generate it with `openssl rand -hex 32`.)
+4. **Configure Cloudprinter** in the [Cloudprinter admin dashboard](https://admin.cloudprinter.com):
+   - Create or open a *CloudCore API Interface* — set its mode to **Sandbox** for
+     demos, **Live** for production. The displayed API key goes in
+     `CLOUDPRINTER_API_KEY` (the mode is part of the key itself, so the base URL
+     never changes between sandbox and live).
+   - Create a *CloudSignal Webhooks* configuration with endpoint
+     `https://stasher.example.com/api/webhooks/cloudprinter`. The Webhook API
+     key shown there (different from the order API key) goes in
+     `CLOUDPRINTER_WEBHOOK_APIKEY`.
+5. **Configure catalog mappings** in
+   *Dashboard → Signage → Catalog → Print provider fulfilment mappings*. Each mapping
+   ties a catalog item (optionally narrowed by `option_match`) to one of:
+   - **Solopress**: `provider_product` (e.g. `Flag`) + attributes
+     (`material`, `size`, `colours`, `turnaround`, `noSides`, …).
+   - **Helloprint**: `provider_attributes.variantKey` + `serviceLevel`
+     (`saver` / `standard` / `express`).
+   - **Cloudprinter**: `provider_product` (Cloudprinter product reference such as
+     `panel_foamex_a4_p`, validated by the "Validate product" button) plus
+     `provider_attributes`:
+     ```json
+     {
+       "shipping_level": "cp_saver",
+       "file_type": "product",
+       "title": "Optional product title",
+       "options": [{ "type": "total_pages", "count": "1" }]
+     }
+     ```
+
+### How automation runs
+
+- **Order placement → auto-fulfilment.** `queueGenerateSignageForOrder` (called from
+  the host submit endpoint, the generic `/api/submit` route, and the dashboard
+  campaign trigger) now chains directly into `fulfilSignageOrder` once the PNGs are
+  uploaded. Any item with an active provider mapping is submitted to the provider
+  in the same background task — no manual fast-track press required.
+- Fast-track / digest runs still work for retries and one-off pushes (they call
+  `fulfilSignageOrder` explicitly; the per-item `alreadyPlaced` check makes this
+  idempotent).
+- For each item with an active mapping, the PNG is wrapped into a print-ready PDF
+  (`lib/signage-automation/render-pdf.ts`), MD5-hashed (required by Cloudprinter),
+  uploaded to Drive with a public direct URL, and submitted to the provider.
+- Items without a mapping are dropped from the manual ops email so they're not
+  double-handled.
+- Status callbacks arrive at the webhook routes which update
+  `signage_provider_jobs` and roll up `signage_orders.fulfillment_status`. Each
+  provider authenticates differently:
+  - **Solopress** signs the body (`X-Solopress-Signature: HMAC-SHA256`).
+  - **Helloprint** uses a long opaque token in the callback URL path.
+  - **Cloudprinter** embeds its `apikey` in the JSON body and we timing-safe
+    compare it against `CLOUDPRINTER_WEBHOOK_APIKEY`.
+
+### Operating the integration
+
+- *Dashboard → Signage → Orders* now shows provider job status, tracking, and lets
+  ops Retry / Cancel (Solopress only) / Update address (Solopress only) for each
+  order from the detail modal.
+- ARTWORK_REJECTED from Helloprint sets `asset_error` on the item so it surfaces in
+  the orders list for manual intervention.
+- Cloudprinter does not expose customer cancel/address-update endpoints in
+  CloudCore v1.0 — use the Cloudprinter admin panel before validation completes.
+- Cloudprinter retries non-200 webhook responses up to 100 times over 7 days, so
+  the handler returns 200 even on "unknown reference" (logged for ops).
+- Unit tests for HMAC / token / apikey verification, status mapping and the mapping
+  resolver live in `tests/print-providers/`; run `npm run test:print-providers`.
+
 ## License
 
 Private - Stasher Internal Use Only

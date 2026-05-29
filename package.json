@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "drive-credentials-base64": "node scripts/google-drive-credentials-base64.mjs",
+    "register-solopress-webhook": "node scripts/register-solopress-webhook.mjs",
+    "test:print-providers": "node --test --conditions=react-server --import tsx tests/print-providers/*.test.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -20,6 +22,7 @@
     "googleapis": "^171.4.0",
     "lucide-react": "^0.344.0",
     "next": "^14.2.0",
+    "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "postcss": "^8.4.0",
     "qrcode": "^1.5.4",
@@ -34,6 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.20.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.2.0",
@@ -42,6 +46,7 @@
     "eslint-config-next": "^14.2.0",
     "prettier": "^3.2.0",
     "prettier-plugin-tailwindcss": "^0.5.11",
+    "tsx": "^4.22.3",
     "typescript": "^5.3.0"
   }
 }

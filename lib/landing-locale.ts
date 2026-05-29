@@ -89,13 +89,28 @@ const COUNTRY_CODE_ALIASES: Record<string, string> = {
   VAT: 'VA',
   // Dutch defaults
   NLD: 'NL',
+  // English-speaking defaults
+  GBR: 'GB',
+  USA: 'US',
+  IRL: 'IE',
+  AUS: 'AU',
+  NZL: 'NZ',
+  ZAF: 'ZA',
+}
+
+/** Normalise stored country values to ISO 3166-1 alpha-2 for print providers. */
+export function normalizeCountryCodeAlpha2(countryCode?: string | null): string {
+  const raw = String(countryCode ?? '').trim()
+  if (!raw) return ''
+  const upperRaw = raw.toUpperCase()
+  return COUNTRY_CODE_ALIASES[upperRaw] || upperRaw
 }
 
 export function localeFromCountryCode(countryCode?: string | null): SupportedLandingLocale {
   const raw = String(countryCode ?? '').trim()
   if (!raw) return 'en'
   const upperRaw = raw.toUpperCase()
-  const cc = COUNTRY_CODE_ALIASES[upperRaw] || upperRaw
+  const cc = normalizeCountryCodeAlpha2(upperRaw)
   if (PT_COUNTRIES.has(cc)) return 'pt'
   if (ES_COUNTRIES.has(cc)) return 'es'
   if (DE_COUNTRIES.has(cc)) return 'de'

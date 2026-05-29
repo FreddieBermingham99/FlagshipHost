@@ -8,6 +8,7 @@ import {
   generateSignageAssetsForOrder,
   type NonUniqueAssetCache,
 } from '@/lib/signage-automation/generate-for-order'
+import { fulfilSignageOrder } from '@/lib/signage-automation/fulfil-order'
 import {
   aggregateCustomisedSupplierLinks,
   aggregateNonUniqueSignageGrouped,
@@ -258,31 +259,73 @@ export async function POST(req: Request) {
         return { folderId: folder.folderId, folderLabel: folder.label }
       },
     })
+    // Hand mapped items off to their print provider. Items without a mapping
+    // (`attempted: false` + no provider) are left for the manual ops email below.
+    let fulfilment: Awaited<ReturnType<typeof fulfilSignageOrder>> | null = null
+    if (gen.ok && runFolderId) {
+      try {
+        fulfilment = await fulfilSignageOrder(orderId, { uploadFolderId: runFolderId })
+      } catch (err) {
+        console.error('[fast-track] fulfilSignageOrder threw', { orderId, err })
+      }
+    }
     const order = await getSignageOrderById(orderId)
-    return { orderId, gen, order }
+    return { orderId, gen, order, fulfilment }
   })
 
+  // Order item ids that were successfully placed with a provider. These rows are
+  // dropped from the manual ops digest below so they're not double-handled.
+  const autoPlacedOrderItemIds = new Set<number>()
   for (const r of settled) {
     if (!r.order) {
       results.push({ orderId: r.orderId, ok: false, error: 'Order not found after generation' })
       continue
     }
     generatedOrders.push(r.order)
+    if (r.fulfilment) {
+      for (const itemResult of r.fulfilment.items) {
+        if (itemResult.ok && itemResult.providerJobRef) {
+          autoPlacedOrderItemIds.add(itemResult.orderItemId)
+        }
+      }
+    }
     results.push({
       orderId: r.orderId,
       ok: r.gen.ok,
       error: r.gen.ok ? undefined : r.gen.error,
     })
   }
+
+  /** Strip items that were auto-placed with a provider so the ops email only shows the remainder. */
+  function withoutAutoPlacedItems(order: SignageOrderWithItems): SignageOrderWithItems {
+    if (autoPlacedOrderItemIds.size === 0) return order
+    return {
+      ...order,
+      items: order.items.filter((it) => !autoPlacedOrderItemIds.has(it.id)),
+    }
+  }
+  const manualOrders = generatedOrders
+    .map((order) => withoutAutoPlacedItems(order))
+    .filter((order) => order.items.length > 0)
   const allGroupKeys = new Set<string>()
-  for (const order of generatedOrders) {
+  for (const order of manualOrders) {
     for (const it of order.items) allGroupKeys.add(itemEmailGroupKey(it, catalogById))
   }
-  if (allGroupKeys.size === 0) allGroupKeys.add('default')
 
   const sentGroups: string[] = []
+  if (allGroupKeys.size === 0) {
+    // Either nothing was generated or every item was auto-placed with a provider.
+    return NextResponse.json({
+      ok: true,
+      emailed: false,
+      to,
+      results,
+      groups: sentGroups,
+      autoPlaced: autoPlacedOrderItemIds.size,
+    })
+  }
   for (const groupKey of allGroupKeys) {
-    const groupOrders = generatedOrders.filter((order) =>
+    const groupOrders = manualOrders.filter((order) =>
       order.items.some((it) => itemEmailGroupKey(it, catalogById) === groupKey)
     )
     if (groupOrders.length === 0) continue
@@ -521,5 +564,12 @@ ${foldersHtml}`
     sentGroups.push(groupLabel)
   }
 
-  return NextResponse.json({ ok: true, emailed: true, to, results, groups: sentGroups })
+  return NextResponse.json({
+    ok: true,
+    emailed: true,
+    to,
+    results,
+    groups: sentGroups,
+    autoPlaced: autoPlacedOrderItemIds.size,
+  })
 }

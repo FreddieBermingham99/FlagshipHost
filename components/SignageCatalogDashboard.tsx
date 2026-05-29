@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SignageTemplateMapper } from '@/components/SignageTemplateMapper'
+import { SignageFulfilmentMappings } from '@/components/SignageFulfilmentMappings'
 import type { SignageOverlayConfig } from '@/lib/signage-automation/types'
 import {
   defaultBusinessRect,
@@ -741,23 +742,12 @@ export default function SignageCatalogDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-dashboard-canvas p-4 sm:p-6">
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Signage Catalog</h1>
-            <p className="text-sm text-slate-500">Manage signage types, images, visibility, and option sets.</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <a href="/dashboard/signage/orders" className="text-sm text-blue-600 hover:underline">
-              View orders
-            </a>
-            <a href="/dashboard/signage/links" className="text-sm text-blue-600 hover:underline">
-              View links
-            </a>
-            <a href="/dashboard/signage/automation" className="text-sm text-blue-600 hover:underline">
-              Automation settings
-            </a>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">Signage catalog</h1>
+            <p className="text-sm text-slate-600">Manage signage types, images, visibility, and option sets.</p>
           </div>
         </div>
 
@@ -1053,6 +1043,10 @@ export default function SignageCatalogDashboard() {
             )}
           </CardContent>
         </Card>
+
+        <SignageFulfilmentMappings
+          catalogItems={items.map((it) => ({ id: it.id, name: it.name }))}
+        />
       </div>
 
       {editingItem && (

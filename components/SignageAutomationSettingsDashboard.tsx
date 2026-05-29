@@ -66,13 +66,13 @@ export default function SignageAutomationSettingsDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-dashboard-canvas p-4 sm:p-6">
       <div className="mx-auto max-w-3xl space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-900">Signage automation settings</h1>
-          <a href="/dashboard/signage/catalog" className="text-sm text-blue-600 hover:underline">
-            Back to catalog
-          </a>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-primary">Signage automation settings</h1>
+          <p className="text-sm text-slate-600">
+            Configure QR codes, default styling, and the digest of orders that need manual fulfilment.
+          </p>
         </div>
         <Card>
           <CardHeader><CardTitle className="text-base">QR URL (Stasher)</CardTitle></CardHeader>

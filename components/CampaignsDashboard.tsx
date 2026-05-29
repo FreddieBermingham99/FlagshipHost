@@ -120,26 +120,18 @@ export default function CampaignsDashboard() {
   }, [selectedCampaignId])
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900">
+    <div className="min-h-screen bg-dashboard-canvas px-4 py-10 text-slate-900">
       <div className="mx-auto max-w-[1500px] space-y-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Email campaigns</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">Email campaigns</h1>
             <p className="mt-1 text-sm text-slate-600">
               History of sent campaigns, recipient statuses, and tracked link clicks.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>
-              Refresh
-            </Button>
-            <a
-              href="/dashboard"
-              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Back to dashboard
-            </a>
-          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>
+            Refresh
+          </Button>
         </div>
 
         {error && (

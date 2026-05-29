@@ -55,18 +55,13 @@ export default function SignageLinksDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-dashboard-canvas p-4 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Signage Order Links</h1>
-            <p className="text-sm text-slate-500">
-              Quick list of signage ordering links without uplift stats.
-            </p>
-          </div>
-          <a href="/dashboard" className="text-sm text-slate-500 hover:text-slate-700">
-            &larr; Dashboard
-          </a>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-primary">Signage order links</h1>
+          <p className="text-sm text-slate-600">
+            Quick list of signage ordering links without uplift stats.
+          </p>
         </div>
 
         <Card>

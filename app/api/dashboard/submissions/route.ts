@@ -95,6 +95,13 @@ export async function GET(req: Request) {
     const status = url.searchParams.get('status')
     if (status) filters.status = status.split(',').filter(Boolean)
 
+    const rawSource = url.searchParams.get('source')
+    if (rawSource && rawSource.trim().length > 0) {
+      filters.source = rawSource.split(',').map((s) => s.trim()).filter(Boolean)
+    } else {
+      filters.source = ['flagship', 'programme', 'programme_pro']
+    }
+
     const city = url.searchParams.get('city')
     if (city) filters.city = city
 

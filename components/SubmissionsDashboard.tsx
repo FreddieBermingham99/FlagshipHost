@@ -544,42 +544,30 @@ export default function SubmissionsDashboard() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <img
-              src="https://i.postimg.cc/bwdb20Ky/Google-reservations-logo-8.png"
-              alt="Stasher"
-              className="h-6"
-              onError={(e) => (e.currentTarget.style.display = 'none')}
-            />
-            <span className="font-bold">Submissions</span>
-            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-              {total}
-            </span>
+    <div className="min-h-screen bg-dashboard-canvas">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-primary">Programme submissions</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Stashpoints that have applied to become a Programme or Flagship partner.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowSettings(!showSettings)}
-                className="text-slate-500"
-              >
-                <Settings className="mr-1.5 h-4 w-4" />
-                Requirements
-              </Button>
-              <a href="/dashboard" className="text-sm text-slate-500 hover:text-slate-700">
-                &larr; Dashboard
-              </a>
-            </div>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-blush px-3 py-1 text-xs font-semibold text-primary">
+              {total} submissions
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSettings(!showSettings)}
+              className="text-primary"
+            >
+              <Settings className="mr-1.5 h-4 w-4" />
+              Requirements
+            </Button>
           </div>
         </div>
-      </header>
-
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {/* Requirements settings */}
         {showSettings && (
           <Card className="mb-6">

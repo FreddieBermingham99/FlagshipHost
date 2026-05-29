@@ -1,5 +1,9 @@
 import 'server-only'
 import { queueGenerateSignageForOrder } from '@/lib/signage-automation/generate-for-order'
+import {
+  fulfilSignageOrder,
+  type FulfilSignageOrderResult,
+} from '@/lib/signage-automation/fulfil-order'
 
 export type SignageGenerationInput = {
   orderId: number
@@ -17,25 +21,9 @@ export type SignageGenerationResult = {
 
 export type FulfillmentPayload = {
   orderId: number
-  address: {
-    line1: string
-    line2?: string | null
-    city: string
-    region?: string | null
-    postcode: string
-    country: string
-  }
-  items: Array<{
-    itemName: string
-    quantity: number
-    assetUrl?: string
-  }>
+  uploadFolderId: string
 }
 
-/**
- * Foundation stub for future signage artwork generation.
- * Integrate template rendering (QR + business name) and provider upload later.
- */
 export async function generateSignageAsset(
   input: SignageGenerationInput
 ): Promise<SignageGenerationResult> {
@@ -44,13 +32,12 @@ export async function generateSignageAsset(
 }
 
 /**
- * Foundation stub for future fulfillment-provider integration.
+ * Route a generated signage order to the configured print-on-demand provider(s).
+ * Returns one result per order item describing whether it was placed, skipped (no mapping),
+ * or failed. Items with no mapping fall back to the existing manual ops email flow.
  */
 export async function queueSignageFulfillment(
-  _payload: FulfillmentPayload
-): Promise<{ ok: boolean; fulfillmentRef?: string; error?: string }> {
-  return {
-    ok: false,
-    error: 'Not implemented yet: fulfillment provider integration pending',
-  }
+  payload: FulfillmentPayload
+): Promise<FulfilSignageOrderResult> {
+  return fulfilSignageOrder(payload.orderId, { uploadFolderId: payload.uploadFolderId })
 }

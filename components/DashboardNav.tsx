@@ -28,19 +28,23 @@ export default function DashboardNav() {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-pink-100 bg-white/95 shadow-sm backdrop-blur">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-blush to-primary" />
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-        <nav className="flex flex-wrap items-center gap-3">
+        <nav className="flex flex-wrap items-center gap-2">
           {NAV_ITEMS.map((item) => {
-            const active = pathname === item.href || pathname?.startsWith(`${item.href}/`)
+            const active =
+              item.href === '/dashboard'
+                ? pathname === '/dashboard'
+                : pathname === item.href || pathname?.startsWith(`${item.href}/`)
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`rounded-md px-2.5 py-1.5 text-sm transition ${
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
                   active
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-primary/80 hover:bg-blush hover:text-primary'
                 }`}
               >
                 {item.label}
@@ -51,7 +55,7 @@ export default function DashboardNav() {
         <button
           type="button"
           onClick={onLogout}
-          className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
+          className="rounded-full border border-primary/20 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-blush hover:text-primary"
         >
           Log out
         </button>

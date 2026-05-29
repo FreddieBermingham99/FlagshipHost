@@ -303,23 +303,15 @@ export default function CityActivationDashboard() {
   const rankingActive = rankBy === 'bookings' || rankBy === 'revenue'
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-dashboard-canvas p-4 sm:p-6">
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">City activation</h1>
-            <p className="text-sm text-slate-500">
+            <h1 className="text-3xl font-bold tracking-tight text-primary">City activation</h1>
+            <p className="text-sm text-slate-600">
               Create bulk signage orders for a city. Optionally target the top N stashpoints by last-30-day paid
               bookings or commission revenue (same period as the flagship dashboard).
             </p>
-          </div>
-          <div className="flex flex-wrap gap-3 text-sm">
-            <a href="/dashboard/signage/orders" className="text-blue-600 hover:underline">
-              Signage orders
-            </a>
-            <a href="/dashboard/signage/catalog" className="text-blue-600 hover:underline">
-              Catalog
-            </a>
           </div>
         </div>
 

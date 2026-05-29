@@ -36,3 +36,23 @@
   }
 }
 
+@layer utilities {
+  .bg-dashboard-canvas {
+    background:
+      radial-gradient(circle at 0% 0%, rgba(252, 206, 238, 0.55) 0%, rgba(252, 206, 238, 0) 45%),
+      radial-gradient(circle at 100% 0%, rgba(22, 64, 135, 0.10) 0%, rgba(22, 64, 135, 0) 50%),
+      linear-gradient(180deg, #ffffff 0%, #fdf6fb 100%);
+  }
+  .bg-dashboard-soft {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(252, 206, 238, 0.45) 0%, rgba(252, 206, 238, 0) 45%),
+      linear-gradient(180deg, #ffffff 0%, #fbf3f8 100%);
+  }
+  .text-brand {
+    color: #164087;
+  }
+  .ring-brand {
+    --tw-ring-color: rgba(22, 64, 135, 0.5);
+  }
+}
+
