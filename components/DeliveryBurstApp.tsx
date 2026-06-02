@@ -1,22 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { googleMapsPlaceUrl } from '@/lib/google-maps-urls'
 import { MapPin, Star, ChevronLeft, List, Map as MapIcon, History, Navigation } from 'lucide-react'
-
-const DeliveryBurstLeafletMap = dynamic(() => import('@/components/DeliveryBurstLeafletMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-[460px] items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-500">
-      Loading map…
-    </div>
-  ),
-})
+import DeliveryBurstMap from '@/components/DeliveryBurstMap'
 
 type Stashpoint = {
   id: number
@@ -541,15 +532,14 @@ export default function DeliveryBurstApp({ slug }: { slug: string }) {
       </div>
 
       <main className="flex-1 space-y-3 p-4 pb-8">
-        {view === 'map' && (
-          <DeliveryBurstLeafletMap
-            stashpoints={orderedPending}
-            onSelect={(id) => {
-              const match = orderedPending.find((s) => s.id === id)
-              if (match) setSelected(match)
-            }}
-          />
-        )}
+        <DeliveryBurstMap
+          visible={view === 'map'}
+          stashpoints={orderedPending}
+          onSelect={(id) => {
+            const match = orderedPending.find((s) => s.id === id)
+            if (match) setSelected(match)
+          }}
+        />
 
         {view !== 'map' && activeList.length === 0 && (
           <p className="py-12 text-center text-sm text-slate-500">
