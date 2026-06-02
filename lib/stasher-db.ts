@@ -356,11 +356,10 @@ LEFT JOIN LATERAL (
         COALESCE(SUM(b.est_commission_amount_gbp), 0) AS revenue_l30_gbp
     FROM bookings b
     WHERE b.stashpoint_id = s.id
-      AND b.dropoff IS NOT NULL
-      AND b.dropoff >= CURRENT_DATE - INTERVAL '30 days'
-      AND b.dropoff < CURRENT_DATE + INTERVAL '1 day'
+      AND b.created >= CURRENT_DATE - INTERVAL '30 days'
+      AND b.created < CURRENT_DATE
       AND b.payment_status = 'paid'
-      AND COALESCE(b.cancelled, FALSE) = FALSE
+      AND b.cancelled = FALSE
 ) bk ON TRUE
 
 LEFT JOIN opening_hours_summary ohs
@@ -374,6 +373,40 @@ ${orderSql}${limitSql}
 `;
 
   return queryStasherDb<StashpointBusinessMetricsRow>(sql, params);
+}
+
+/**
+ * Live bookings-last-30-days per stashpoint id, using the IDENTICAL expression as
+ * `listStashpointsFromDb` (`bk.bookings_l30`). Returns a map keyed by stashpoint id (string).
+ * Use this to show the same bookings number as the flagship dashboard anywhere else.
+ */
+export async function fetchBookingsLast30DaysForStashpoints(
+  stashpointIds: Array<string | number>
+): Promise<Record<string, number>> {
+  const ids = [...new Set(stashpointIds.map((v) => String(v).trim()).filter(Boolean))];
+  if (ids.length === 0) return {};
+
+  const rows = await queryStasherDb<{ stashpoint_id: string; bookings_l30: number | string }>(
+    `SELECT s.id::text AS stashpoint_id, COALESCE(bk.bookings_l30, 0) AS bookings_l30
+     FROM stashpoints s
+     LEFT JOIN LATERAL (
+       SELECT COUNT(DISTINCT b.id) AS bookings_l30
+       FROM bookings b
+       WHERE b.stashpoint_id = s.id
+         AND b.created >= CURRENT_DATE - INTERVAL '30 days'
+         AND b.created < CURRENT_DATE
+         AND b.payment_status = 'paid'
+         AND b.cancelled = FALSE
+     ) bk ON TRUE
+     WHERE s.id::text = ANY($1::text[])`,
+    [ids]
+  );
+
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    out[String(r.stashpoint_id)] = Number(r.bookings_l30) || 0;
+  }
+  return out;
 }
 
 /** One row per host with active non-locker stashpoints (separate from per-stashpoint metrics). */

@@ -99,7 +99,7 @@ export async function POST(req: Request) {
     address: r.streetAddress ?? r.landmark ?? null,
     latitude: r.latitude != null ? Number(r.latitude) : null,
     longitude: r.longitude != null ? Number(r.longitude) : null,
-    bookings_last_30_days: r.bookings ? Number(String(r.bookings).replace(/,/g, '')) || null : null,
+    bookings_last_30_days: Number(r.bookingsLast30DaysRaw ?? 0),
     is_flagship_manual: manualFlagshipIds.has(String(r.stashpointId)),
     is_flagship_submission: submissionFlagships.has(String(r.stashpointId).trim().toLowerCase()),
   }))

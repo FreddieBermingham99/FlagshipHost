@@ -26,39 +26,43 @@ export async function geocodeAddress(address: string): Promise<LatLon | null> {
   const q = address.trim()
   if (!q) return null
 
-  const googleKey = process.env.GOOGLE_MAPS_API_KEY?.trim()
-  if (googleKey) {
-    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
-    url.searchParams.set('address', q)
-    url.searchParams.set('key', googleKey)
-    const res = await fetch(url.toString(), { next: { revalidate: 0 } })
-    if (res.ok) {
-      const data = (await res.json()) as {
-        results?: Array<{ geometry?: { location?: { lat?: number; lng?: number } } }>
-      }
-      const loc = data.results?.[0]?.geometry?.location
-      if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
-        return { lat: loc.lat!, lon: loc.lng! }
+  try {
+    const googleKey = process.env.GOOGLE_MAPS_API_KEY?.trim()
+    if (googleKey) {
+      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+      url.searchParams.set('address', q)
+      url.searchParams.set('key', googleKey)
+      const res = await fetch(url.toString(), { next: { revalidate: 0 } })
+      if (res.ok) {
+        const data = (await res.json()) as {
+          results?: Array<{ geometry?: { location?: { lat?: number; lng?: number } } }>
+        }
+        const loc = data.results?.[0]?.geometry?.location
+        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+          return { lat: loc.lat!, lon: loc.lng! }
+        }
       }
     }
-  }
 
-  const nominatimUrl = new URL('https://nominatim.openstreetmap.org/search')
-  nominatimUrl.searchParams.set('q', q)
-  nominatimUrl.searchParams.set('format', 'json')
-  nominatimUrl.searchParams.set('limit', '1')
-  const res = await fetch(nominatimUrl.toString(), {
-    headers: { 'User-Agent': 'StasherDeliveryBurst/1.0' },
-    next: { revalidate: 0 },
-  })
-  if (!res.ok) return null
-  const data = (await res.json()) as Array<{ lat?: string; lon?: string }>
-  const hit = data[0]
-  if (!hit) return null
-  const lat = Number(hit.lat)
-  const lon = Number(hit.lon)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
-  return { lat, lon }
+    const nominatimUrl = new URL('https://nominatim.openstreetmap.org/search')
+    nominatimUrl.searchParams.set('q', q)
+    nominatimUrl.searchParams.set('format', 'json')
+    nominatimUrl.searchParams.set('limit', '1')
+    const res = await fetch(nominatimUrl.toString(), {
+      headers: { 'User-Agent': 'StasherDeliveryBurst/1.0' },
+      next: { revalidate: 0 },
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as Array<{ lat?: string; lon?: string }>
+    const hit = data[0]
+    if (!hit) return null
+    const lat = Number(hit.lat)
+    const lon = Number(hit.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+    return { lat, lon }
+  } catch {
+    return null
+  }
 }
 
 /**

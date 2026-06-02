@@ -5,12 +5,17 @@ import {
   listDeliveryBurstStashpoints,
   refreshSubmissionFlagshipFlags,
 } from '@/lib/delivery-burst-db'
+import { fetchBookingsLast30DaysForStashpoints, isStasherDbConfigured } from '@/lib/stasher-db'
 
 export const dynamic = 'force-dynamic'
 
 type RouteParams = { params: { slug: string } }
 
-function serializeStashpoint(s: Awaited<ReturnType<typeof listDeliveryBurstStashpoints>>[0]) {
+function serializeStashpoint(
+  s: Awaited<ReturnType<typeof listDeliveryBurstStashpoints>>[0],
+  liveBookings: Record<string, number>
+) {
+  const live = liveBookings[String(s.stashpoint_id)]
   return {
     id: s.id,
     stashpoint_id: s.stashpoint_id,
@@ -20,7 +25,7 @@ function serializeStashpoint(s: Awaited<ReturnType<typeof listDeliveryBurstStash
     address: s.address,
     latitude: s.latitude,
     longitude: s.longitude,
-    bookings_last_30_days: s.bookings_last_30_days,
+    bookings_last_30_days: live !== undefined ? live : s.bookings_last_30_days,
     is_flagship: s.is_flagship_manual || s.is_flagship_submission,
     is_flagship_manual: s.is_flagship_manual,
     is_flagship_submission: s.is_flagship_submission,
@@ -57,6 +62,19 @@ export async function GET(_req: Request, { params }: RouteParams) {
   const pending = stashpoints.filter((s) => s.status === 'pending')
   const completed = stashpoints.filter((s) => s.status === 'completed')
 
+  // Pull live bookings (same metric as the flagship dashboard) so the field app
+  // shows current numbers, not the value frozen at campaign-creation time.
+  let liveBookings: Record<string, number> = {}
+  if (isStasherDbConfigured()) {
+    try {
+      liveBookings = await fetchBookingsLast30DaysForStashpoints(
+        stashpoints.map((s) => s.stashpoint_id)
+      )
+    } catch {
+      liveBookings = {}
+    }
+  }
+
   return NextResponse.json({
     campaign: {
       id: campaign.id,
@@ -67,7 +85,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       signage_types: campaign.signage_types,
       status: campaign.status,
     },
-    pending: pending.map(serializeStashpoint),
-    completed: completed.map(serializeStashpoint),
+    pending: pending.map((s) => serializeStashpoint(s, liveBookings)),
+    completed: completed.map((s) => serializeStashpoint(s, liveBookings)),
   })
 }

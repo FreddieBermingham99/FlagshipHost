@@ -82,6 +82,8 @@ export default function DeliveryBurstDashboard() {
   const [loadingCampaigns, setLoadingCampaigns] = useState(false)
   const [detailFlagshipKeys, setDetailFlagshipKeys] = useState<Set<string>>(new Set())
   const [savingDetail, setSavingDetail] = useState(false)
+  const [editCampaignName, setEditCampaignName] = useState('')
+  const [editSignageTypesText, setEditSignageTypesText] = useState('')
 
   const effectiveCity = (citySelected.trim() || cityFilter.trim()).trim()
 
@@ -95,6 +97,16 @@ export default function DeliveryBurstDashboard() {
     () => campaigns.find((c) => c.id === selectedCampaignId) ?? null,
     [campaigns, selectedCampaignId]
   )
+
+  useEffect(() => {
+    if (!selectedCampaign) {
+      setEditCampaignName('')
+      setEditSignageTypesText('')
+      return
+    }
+    setEditCampaignName(selectedCampaign.name || selectedCampaign.city)
+    setEditSignageTypesText(selectedCampaign.signage_types.join('\n'))
+  }, [selectedCampaign])
 
   const filtersPayload = useMemo((): StashpointFilterPayload => {
     const f: StashpointFilterPayload = {}
@@ -189,11 +201,10 @@ export default function DeliveryBurstDashboard() {
       })
       const data = (await res.json()) as { rows?: StashpointRow[]; error?: string }
       if (!res.ok) throw new Error(data.error || 'Failed to load stashpoints')
-      const allRows = (data.rows ?? []).map((r) => ({
+      const next = (data.rows ?? []).map((r) => ({
         ...r,
         stashpointId: String(r.stashpointId),
       }))
-      const next = allRows
       setRows(next)
       setSelectedKeys(new Set(next.map(rowKey)))
 
@@ -213,7 +224,7 @@ export default function DeliveryBurstDashboard() {
       setSubmissionFlagshipKeys(fromSubs)
       setFlagshipKeys(new Set(fromSubs))
       setMessage(
-        `Loaded ${next.length} of ${allRows.length} stashpoints in ${effectiveCity} (filters: ${activeFilterSummary}).${fromSubs.size > 0 ? ` ${fromSubs.size} Flagship submission(s) pre-selected.` : ''}`
+        `Loaded ${next.length} stashpoints in ${effectiveCity} (filters: ${activeFilterSummary}).${fromSubs.size > 0 ? ` ${fromSubs.size} Flagship submission(s) pre-selected.` : ''}`
       )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load stashpoints')
@@ -336,6 +347,32 @@ export default function DeliveryBurstDashboard() {
       await loadCampaigns()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setSavingDetail(false)
+    }
+  }
+
+  const deleteCampaign = async () => {
+    if (!selectedCampaignId || !selectedCampaign) return
+    const ok = window.confirm(`Delete campaign "${selectedCampaign.name || selectedCampaign.city}"?`)
+    if (!ok) return
+    setSavingDetail(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/dashboard/delivery-burst/campaigns/${selectedCampaignId}`, {
+        method: 'DELETE',
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Delete failed')
+      setMessage('Campaign deleted.')
+      setCampaigns((prev) => {
+        const remaining = prev.filter((c) => c.id !== selectedCampaignId)
+        setSelectedCampaignId(remaining.length > 0 ? remaining[0].id : null)
+        return remaining
+      })
+      setDetailStashpoints([])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed')
     } finally {
       setSavingDetail(false)
     }
@@ -678,13 +715,33 @@ export default function DeliveryBurstDashboard() {
                   </div>
 
                   <div>
+                    <Label>Campaign name</Label>
+                    <div className="mt-1 flex gap-2">
+                      <Input
+                        value={editCampaignName}
+                        onChange={(e) => setEditCampaignName(e.target.value)}
+                        disabled={savingDetail}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={savingDetail || !editCampaignName.trim()}
+                        onClick={() => void updateCampaign({ name: editCampaignName.trim() })}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div>
                     <Label>Campaign type</Label>
                     <div className="mt-1 flex gap-2">
                       {(['stasher', 'contractor'] as const).map((t) => (
                         <button
                           key={t}
                           type="button"
-                          disabled={savingDetail || selectedCampaign.status === 'completed'}
+                          disabled={savingDetail}
                           onClick={() => void updateCampaign({ campaign_type: t })}
                           className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${
                             selectedCampaign.campaign_type === t
@@ -700,7 +757,30 @@ export default function DeliveryBurstDashboard() {
 
                   <div>
                     <Label>Signage types</Label>
-                    <p className="text-sm text-slate-600">{selectedCampaign.signage_types.join(', ')}</p>
+                    <div className="mt-1 flex gap-2">
+                      <textarea
+                        className="min-h-[96px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                        value={editSignageTypesText}
+                        onChange={(e) => setEditSignageTypesText(e.target.value)}
+                        disabled={savingDetail}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={savingDetail}
+                        onClick={() =>
+                          void updateCampaign({
+                            signage_types: editSignageTypesText
+                              .split('\n')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                      >
+                        Save
+                      </Button>
+                    </div>
                   </div>
 
                   <div>
@@ -759,6 +839,18 @@ export default function DeliveryBurstDashboard() {
                       Mark complete &amp; export Google Sheet
                     </Button>
                   )}
+
+                  <div className="border-t pt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-red-200 text-red-700 hover:bg-red-50"
+                      disabled={savingDetail}
+                      onClick={() => void deleteCampaign()}
+                    >
+                      Delete campaign
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             )}

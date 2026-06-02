@@ -29,6 +29,8 @@ export type DashboardStashpointRow = FlagshipBusinessPackage & {
   is24Hour: boolean | null
   openBefore9am: boolean | null
   openPast9pm: boolean | null
+  /** Raw booking count from bk.bookings_l30 before display formatting. */
+  bookingsLast30DaysRaw: number
 }
 
 export async function fetchDashboardStashpointRows(
@@ -64,6 +66,7 @@ export async function fetchDashboardStashpointRows(
       is24Hour: r.is_24_hour,
       openBefore9am: r.open_before_9am,
       openPast9pm: r.open_past_9pm,
+      bookingsLast30DaysRaw: Number(r.bookings_last_30_days ?? 0) || 0,
     }
   })
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireDashboardSessionApi } from '@/lib/require-dashboard-session'
 import {
+  deleteDeliveryBurstCampaign,
   getDeliveryBurstCampaignById,
   isDeliveryBurstDbConfigured,
   listDeliveryBurstStashpoints,
@@ -77,6 +78,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   const o = body as Record<string, unknown>
   const patch: Parameters<typeof updateDeliveryBurstCampaign>[1] = {}
 
+  if (typeof o.name === 'string') {
+    patch.name = o.name.trim() || campaign.name
+  }
   if (o.campaign_type === 'stasher' || o.campaign_type === 'contractor') {
     patch.campaign_type = o.campaign_type
   }
@@ -128,4 +132,24 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       completed_at: updated.completed_at?.toISOString() ?? null,
     },
   })
+}
+
+export async function DELETE(_req: Request, { params }: RouteParams) {
+  const authErr = requireDashboardSessionApi()
+  if (authErr) return authErr
+
+  if (!isDeliveryBurstDbConfigured()) {
+    return NextResponse.json({ error: 'Delivery burst DB is not configured.' }, { status: 503 })
+  }
+
+  const id = Number(params.id)
+  if (!Number.isFinite(id)) {
+    return NextResponse.json({ error: 'Invalid campaign id.' }, { status: 400 })
+  }
+
+  const deleted = await deleteDeliveryBurstCampaign(id)
+  if (!deleted) {
+    return NextResponse.json({ error: 'Campaign not found.' }, { status: 404 })
+  }
+  return NextResponse.json({ ok: true })
 }

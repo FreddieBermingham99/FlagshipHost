@@ -373,6 +373,7 @@ export async function listDeliveryBurstStashpoints(
 export async function updateDeliveryBurstCampaign(
   id: number,
   patch: {
+    name?: string
     campaign_type?: DeliveryBurstCampaignType
     signage_types?: string[]
     status?: DeliveryBurstCampaignStatus
@@ -385,6 +386,11 @@ export async function updateDeliveryBurstCampaign(
   const params: unknown[] = []
   let i = 1
 
+  if (patch.name !== undefined) {
+    sets.push(`name = $${i}`)
+    params.push(patch.name)
+    i++
+  }
   if (patch.campaign_type !== undefined) {
     sets.push(`campaign_type = $${i}`)
     params.push(patch.campaign_type)
@@ -421,6 +427,14 @@ export async function updateDeliveryBurstCampaign(
     )
     const row = res.rows[0]
     return row ? mapCampaignRow(row as Record<string, unknown>) : null
+  })
+}
+
+export async function deleteDeliveryBurstCampaign(id: number): Promise<boolean> {
+  await ensureTables()
+  return withClient(async (c) => {
+    const res = await c.query(`DELETE FROM delivery_burst_campaigns WHERE id = $1`, [id])
+    return (res.rowCount ?? 0) > 0
   })
 }
 

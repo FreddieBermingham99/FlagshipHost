@@ -1,12 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { googleMapsPlaceUrl } from '@/lib/google-maps-urls'
 import { MapPin, Star, ChevronLeft, List, Map as MapIcon, History, Navigation } from 'lucide-react'
+
+const DeliveryBurstLeafletMap = dynamic(() => import('@/components/DeliveryBurstLeafletMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[460px] items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-500">
+      Loading map…
+    </div>
+  ),
+})
 
 type Stashpoint = {
   id: number
@@ -45,6 +55,19 @@ function sortByRoute(a: Stashpoint, b: Stashpoint): number {
   const bo = b.route_order ?? 99999
   if (ao !== bo) return ao - bo
   return a.business_name.localeCompare(b.business_name, 'en-GB')
+}
+
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'Server returned an invalid response.'
+        : `Request failed (${res.status}). ${text.slice(0, 120).replace(/\s+/g, ' ').trim()}`
+    )
+  }
 }
 
 async function fileToDataUrl(file: File): Promise<string> {
@@ -98,73 +121,6 @@ function StashpointCard({
   )
 }
 
-function SimpleMap({
-  stashpoints,
-  onSelect,
-}: {
-  stashpoints: Stashpoint[]
-  onSelect: (sp: Stashpoint) => void
-}) {
-  const withCoords = stashpoints.filter((s) => s.latitude != null && s.longitude != null)
-  if (withCoords.length === 0) {
-    return (
-      <p className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
-        No coordinates available for map view.
-      </p>
-    )
-  }
-
-  const lats = withCoords.map((s) => s.latitude!)
-  const lons = withCoords.map((s) => s.longitude!)
-  const minLat = Math.min(...lats)
-  const maxLat = Math.max(...lats)
-  const minLon = Math.min(...lons)
-  const maxLon = Math.max(...lons)
-  const pad = 0.02
-
-  const project = (lat: number, lon: number) => {
-    const x = ((lon - minLon + pad) / (maxLon - minLon + pad * 2)) * 100
-    const y = 100 - ((lat - minLat + pad) / (maxLat - minLat + pad * 2)) * 100
-    return { x: Math.min(96, Math.max(4, x)), y: Math.min(96, Math.max(4, y)) }
-  }
-
-  return (
-    <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
-      <div
-        className="absolute inset-0 opacity-40"
-        style={{
-          backgroundImage:
-            'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)',
-          backgroundSize: '24px 24px',
-        }}
-      />
-      {withCoords.map((sp) => {
-        const { x, y } = project(sp.latitude!, sp.longitude!)
-        const flagship = sp.is_flagship
-        return (
-          <button
-            key={sp.id}
-            type="button"
-            title={sp.business_name}
-            onClick={() => onSelect(sp)}
-            className="absolute -translate-x-1/2 -translate-y-full"
-            style={{ left: `${x}%`, top: `${y}%` }}
-          >
-            <span
-              className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white shadow-md ${
-                flagship
-                  ? 'bg-emerald-500 shadow-emerald-300/80 ring-2 ring-emerald-300'
-                  : 'bg-primary shadow-primary/30'
-              }`}
-            >
-              <MapPin className="h-4 w-4 text-white" />
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 function DetailForm({
   slug,
@@ -454,7 +410,7 @@ export default function DeliveryBurstApp({ slug }: { slug: string }) {
     setRouting(true)
     setRouteMessage(null)
     try {
-      const res = await fetch(`/api/delivery-burst/${encodeURIComponent(slug)}/route`, {
+      const res = await fetch(`/api/delivery-burst/${encodeURIComponent(slug)}/plan-route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -462,7 +418,7 @@ export default function DeliveryBurstApp({ slug }: { slug: string }) {
           visit_count: visitCount.trim() ? Number(visitCount) : undefined,
         }),
       })
-      const data = (await res.json()) as { visit_count?: number; error?: string }
+      const data = await readJsonResponse<{ visit_count?: number; error?: string }>(res)
       if (!res.ok) throw new Error(data.error || 'Route planning failed')
       setRouteMessage(`Route planned for ${data.visit_count ?? 0} stops.`)
       await load()
@@ -586,7 +542,13 @@ export default function DeliveryBurstApp({ slug }: { slug: string }) {
 
       <main className="flex-1 space-y-3 p-4 pb-8">
         {view === 'map' && (
-          <SimpleMap stashpoints={orderedPending} onSelect={setSelected} />
+          <DeliveryBurstLeafletMap
+            stashpoints={orderedPending}
+            onSelect={(id) => {
+              const match = orderedPending.find((s) => s.id === id)
+              if (match) setSelected(match)
+            }}
+          />
         )}
 
         {view !== 'map' && activeList.length === 0 && (
