@@ -100,6 +100,12 @@ export type SignagePublicUrlOptions = {
   hostId?: number | string | null
 }
 
+/** Delivery burst field app URL (`/delivery/{slug}`). */
+export function deliveryBurstPublicUrl(slug: string): string {
+  const base = resolveFlagshipSiteBaseUrl()
+  return `${base}/delivery/${encodeURIComponent(slug.trim())}`
+}
+
 /** Signage ordering page URL (`/s/{stashpointId}` or host-level `/s/h/{hostId}`). */
 export function signagePublicUrl(
   stashpointId: number | string,

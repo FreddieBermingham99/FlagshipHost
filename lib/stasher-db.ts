@@ -122,6 +122,8 @@ export type StashpointListingFilters = {
   search?: string;
   minWeeklyOpenHours?: number;
   minCapacity?: number;
+  /** Minimum completed bookings (by dropoff date) in the last 30 days. */
+  minBookings?: number;
   /** When true, only `is_24_hour` stashpoints. */
   is24Hour?: boolean;
   /** When true, only `open_before_9am`. */
@@ -190,6 +192,12 @@ export async function listStashpointsFromDb(
   if (filters.minCapacity !== undefined && Number.isFinite(filters.minCapacity)) {
     extra.push(`AND COALESCE(s.capacity, 0) >= $${i}`);
     params.push(filters.minCapacity);
+    i += 1;
+  }
+  if (filters.minBookings !== undefined && Number.isFinite(filters.minBookings)) {
+    // Use the exact same bookings metric shown in the dashboard table.
+    extra.push(`AND COALESCE(bk.bookings_l30, 0) >= $${i}`);
+    params.push(Math.floor(filters.minBookings));
     i += 1;
   }
   if (filters.is24Hour === true) {
@@ -348,10 +356,11 @@ LEFT JOIN LATERAL (
         COALESCE(SUM(b.est_commission_amount_gbp), 0) AS revenue_l30_gbp
     FROM bookings b
     WHERE b.stashpoint_id = s.id
-      AND b.created >= CURRENT_DATE - INTERVAL '30 days'
-      AND b.created < CURRENT_DATE
+      AND b.dropoff IS NOT NULL
+      AND b.dropoff >= CURRENT_DATE - INTERVAL '30 days'
+      AND b.dropoff < CURRENT_DATE + INTERVAL '1 day'
       AND b.payment_status = 'paid'
-      AND b.cancelled = FALSE
+      AND COALESCE(b.cancelled, FALSE) = FALSE
 ) bk ON TRUE
 
 LEFT JOIN opening_hours_summary ohs

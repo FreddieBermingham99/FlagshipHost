@@ -21,6 +21,7 @@ export type DashboardStashpointRow = FlagshipBusinessPackage & {
   stashpointId: number | string
   /** Stasher `hosts.id` for programme short links / deduped programme URLs. */
   hostId: string | null
+  streetAddress: string | null
   latitude: number | string | null
   longitude: number | string | null
   weeklyOpenHours: number | string | null
@@ -55,6 +56,7 @@ export async function fetchDashboardStashpointRows(
           : `/flagship/${pkg.slug}`,
       stashpointId: String(r.stashpoint_id),
       hostId: r.host_id ?? null,
+      streetAddress: r.address ?? null,
       latitude: r.latitude,
       longitude: r.longitude,
       weeklyOpenHours: r.weekly_open_hours,

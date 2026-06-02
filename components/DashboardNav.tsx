@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/dashboard/submissions', label: 'Submissions' },
   { href: '/dashboard/campaigns', label: 'Campaigns' },
+  { href: '/dashboard/delivery-burst', label: 'Delivery burst' },
   { href: '/dashboard/signage/orders', label: 'Signage orders' },
   { href: '/dashboard/signage/city-activation', label: 'City activation' },
   { href: '/dashboard/signage/catalog', label: 'Signage catalog' },

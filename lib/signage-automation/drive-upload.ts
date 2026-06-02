@@ -144,19 +144,22 @@ function parseServiceAccountJson(rawInput: string): { client_email: string; priv
 let cachedDriveAuth: InstanceType<typeof google.auth.JWT> | null = null
 let cachedDriveClient: ReturnType<typeof google.drive> | null = null
 
-function getDriveAuth() {
+export function getDriveAuth() {
   if (cachedDriveAuth) return cachedDriveAuth
   const raw = loadCredentialsRaw()
   const creds = parseServiceAccountJson(raw)
   cachedDriveAuth = new google.auth.JWT({
     email: creds.client_email,
     key: creds.private_key,
-    scopes: ['https://www.googleapis.com/auth/drive'],
+    scopes: [
+      'https://www.googleapis.com/auth/drive',
+      'https://www.googleapis.com/auth/spreadsheets',
+    ],
   })
   return cachedDriveAuth
 }
 
-function getDriveClient() {
+export function getDriveClient() {
   if (cachedDriveClient) return cachedDriveClient
   cachedDriveClient = google.drive({ version: 'v3', auth: getDriveAuth() })
   return cachedDriveClient

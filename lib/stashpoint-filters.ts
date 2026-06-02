@@ -13,6 +13,8 @@ export type RadiusCenterInput = {
 export type StashpointFilterPayload = {
   minWeeklyOpenHours?: number
   minCapacity?: number
+  /** Minimum completed bookings (dropoff in last 30 days). */
+  minBookings?: number
   /** If true, only stashpoints with is_24_hour; omit for no filter. */
   require24Hour?: boolean
   requireOpenBefore9am?: boolean
@@ -46,6 +48,9 @@ export function parseStashpointFilterPayload(raw: unknown): StashpointListingFil
 
   const mc = num(o.minCapacity)
   if (mc !== undefined) out.minCapacity = mc
+
+  const mb = num(o.minBookings)
+  if (mb !== undefined) out.minBookings = mb
 
   if (o.require24Hour === true) out.is24Hour = true
   if (o.requireOpenBefore9am === true) out.openBefore9am = true
