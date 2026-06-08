@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 
 import { requireDashboardSessionApi } from '@/lib/require-dashboard-session'
 import {
+  parseSolopressOptionsPayload,
+  parseSolopressProductAttributeMap,
+} from '@/lib/print-providers/solopress/catalog'
+import {
   solopressGetAttributeOptions,
   solopressGetProductAttributes,
 } from '@/lib/print-providers/solopress/client'
@@ -23,10 +27,18 @@ export async function GET(
   try {
     if (attribute) {
       const res = await solopressGetAttributeOptions(productName, attribute)
-      return NextResponse.json(res)
+      return NextResponse.json({
+        options: parseSolopressOptionsPayload(res, attribute),
+        raw: res,
+      })
     }
     const res = await solopressGetProductAttributes(productName)
-    return NextResponse.json(res)
+    const { attributes, optionsByAttribute } = parseSolopressProductAttributeMap(res)
+    return NextResponse.json({
+      attributes,
+      optionsByAttribute,
+      raw: res,
+    })
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to fetch attributes' },

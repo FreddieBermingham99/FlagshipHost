@@ -22,6 +22,11 @@
  *   SOLOPRESS_NOTIFICATION_EMAIL — ops email Solopress will alert on webhook failures.
  */
 
+function normalizeSolopressBaseUrl(raw) {
+  const trimmed = (raw?.trim() || 'https://api.solopress.com').replace(/\/+$/, '')
+  return trimmed.replace(/\/api\/v2$/i, '')
+}
+
 const required = ['SOLOPRESS_API_KEY', 'SOLOPRESS_WEBHOOK_URL', 'SOLOPRESS_WEBHOOK_SECRET']
 const missing = required.filter((k) => !process.env[k]?.trim())
 if (missing.length > 0) {
@@ -29,9 +34,9 @@ if (missing.length > 0) {
   process.exit(1)
 }
 
-const baseUrl = (process.env.SOLOPRESS_BASE_URL || 'https://api.solopress.com').replace(/\/+$/, '')
-const headerName = process.env.SOLOPRESS_AUTH_HEADER || 'Authorization'
-const headerPrefix = process.env.SOLOPRESS_AUTH_PREFIX ?? 'Bearer '
+const baseUrl = normalizeSolopressBaseUrl(process.env.SOLOPRESS_BASE_URL)
+const headerName = process.env.SOLOPRESS_AUTH_HEADER || 'X-Api-Key'
+const headerPrefix = process.env.SOLOPRESS_AUTH_PREFIX ?? ''
 
 const body = {
   name: 'Stasher signage fulfilment',

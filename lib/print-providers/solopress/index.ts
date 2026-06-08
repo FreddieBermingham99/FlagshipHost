@@ -24,6 +24,10 @@ import {
   type SolopressPriceInput,
 } from '@/lib/print-providers/solopress/client'
 import {
+  isSolopressTurnaround,
+  SOLOPRESS_DEFAULT_TURNAROUND,
+} from '@/lib/print-providers/solopress/catalog'
+import {
   parseSolopressWebhook,
   SOLOPRESS_SIGNATURE_HEADER,
   verifySolopressSignature,
@@ -66,12 +70,16 @@ function buildJob(
     typeof attributes.noSides === 'number'
       ? attributes.noSides
       : Number(attributes.noSides) || 1
+  const turnaround = isSolopressTurnaround(attributes.turnaround)
+    ? attributes.turnaround
+    : SOLOPRESS_DEFAULT_TURNAROUND
   return {
     ...attributes,
     artworkLocation: artworkUrl,
     product: product ?? (attributes.product as string | null | undefined) ?? null,
     noSides,
     quantity,
+    turnaround,
   }
 }
 

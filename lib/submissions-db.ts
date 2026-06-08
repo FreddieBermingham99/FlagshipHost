@@ -1853,6 +1853,19 @@ export async function listActiveProviderMappings(): Promise<SignageCatalogProvid
   })
 }
 
+export async function getProviderMappingById(
+  id: number
+): Promise<SignageCatalogProviderMappingRow | null> {
+  await ensureTable()
+  return withClient(async (c) => {
+    const res = await c.query<SignageCatalogProviderMappingRow>(
+      `SELECT * FROM signage_catalog_provider_mappings WHERE id = $1`,
+      [id]
+    )
+    return res.rows[0] ?? null
+  })
+}
+
 export async function createProviderMapping(
   data: SignageCatalogProviderMappingInsert
 ): Promise<SignageCatalogProviderMappingRow> {

@@ -212,3 +212,53 @@ export async function helloprintValidateVariantKey(params: {
     return { valid: false, error: err instanceof Error ? err.message : 'Validation failed' }
   }
 }
+
+// ---------------------------------------------------------------------------
+// REST v1 product introspection (catalog browser)
+// ---------------------------------------------------------------------------
+
+const HELLOPRINT_PRODUCT_INDEX_URL = 'https://developers.helloprint.com/docs.md'
+
+async function callHelloprintRest<T>(method: 'GET', path: string): Promise<T> {
+  const apiKey = process.env.HELLOPRINT_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('HELLOPRINT_API_KEY is not configured')
+  }
+  const url = `${getBaseUrl()}/rest/v1${path.startsWith('/') ? path : `/${path}`}`
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      'x-api-key': apiKey,
+    },
+    cache: 'no-store',
+  })
+  const text = await res.text()
+  let parsed: unknown = null
+  if (text) {
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      parsed = { message: text }
+    }
+  }
+  if (!res.ok) {
+    const msg =
+      (parsed && typeof parsed === 'object' && 'message' in parsed && (parsed as { message?: string }).message) ||
+      `Helloprint REST ${method} ${path} → HTTP ${res.status}`
+    throw new Error(String(msg))
+  }
+  return parsed as T
+}
+
+export async function helloprintFetchProductIndexMarkdown(): Promise<string> {
+  const res = await fetch(HELLOPRINT_PRODUCT_INDEX_URL, { cache: 'no-store' })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Helloprint product index (HTTP ${res.status})`)
+  }
+  return res.text()
+}
+
+export async function helloprintGetProduct(productKey: string): Promise<unknown> {
+  return callHelloprintRest('GET', `/products/${encodeURIComponent(productKey)}`)
+}

@@ -5,6 +5,7 @@ import { PRINT_PROVIDER_NAMES } from '@/lib/print-providers/registry'
 import type { PrintProviderName } from '@/lib/print-providers/types'
 import {
   deleteProviderMapping,
+  getProviderMappingById,
   isSubmissionsDbConfigured,
   updateProviderMapping,
 } from '@/lib/submissions-db'
@@ -29,11 +30,29 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const id = parseId(params.id)
   if (!id) return NextResponse.json({ error: 'Invalid mapping id' }, { status: 400 })
 
+  const existing = await getProviderMappingById(id)
+  if (!existing) return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })
+
   let body: Record<string, unknown>
   try {
     body = (await req.json()) as Record<string, unknown>
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const provider = isProviderName(body.provider) ? body.provider : existing.provider
+  const isActive = typeof body.is_active === 'boolean' ? body.is_active : existing.is_active
+  const providerProduct =
+    'provider_product' in body
+      ? typeof body.provider_product === 'string'
+        ? body.provider_product.trim() || null
+        : null
+      : existing.provider_product
+  if (provider === 'solopress' && isActive && !providerProduct) {
+    return NextResponse.json(
+      { error: 'Choose a Solopress product before activating this mapping' },
+      { status: 400 }
+    )
   }
 
   const mapping = await updateProviderMapping(id, {

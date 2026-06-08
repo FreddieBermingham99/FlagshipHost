@@ -2,6 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import {
+  CloudprinterProductSelect,
+  type CloudprinterCatalogProduct,
+} from '@/components/CloudprinterProductSelect'
+import {
+  HelloprintProductSelect,
+  type HelloprintCatalogSelection,
+} from '@/components/HelloprintProductSelect'
+import { SolopressAttributeEditor } from '@/components/SolopressAttributeEditor'
+import {
+  SolopressProductPicker,
+  type SolopressCatalogProduct,
+} from '@/components/SolopressProductPicker'
+import {
+  SolopressProductSelect,
+  type SolopressCatalogProduct as InlineSolopressProduct,
+} from '@/components/SolopressProductSelect'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -38,6 +55,26 @@ type Props = {
   catalogItems: CatalogItemBrief[]
 }
 
+function helloprintSelectionFromMapping(
+  providerProduct: string | null,
+  attrs: Record<string, unknown>
+): HelloprintCatalogSelection | null {
+  const variantKey = String(attrs.variantKey ?? '').trim()
+  if (!variantKey.includes('~')) return null
+  const productKey = providerProduct?.trim() || variantKey.split('~')[0] || ''
+  if (!productKey) return null
+  const level = attrs.serviceLevel
+  const serviceLevel =
+    level === 'saver' || level === 'express' ? level : ('standard' as const)
+  return {
+    productKey,
+    label: productKey,
+    category: 'Current mapping',
+    variantKey,
+    serviceLevel,
+  }
+}
+
 function safeParseJson(input: string): { ok: boolean; value?: Record<string, unknown>; error?: string } {
   if (!input.trim()) return { ok: true, value: {} }
   try {
@@ -51,17 +88,158 @@ function safeParseJson(input: string): { ok: boolean; value?: Record<string, unk
   }
 }
 
+function formatProviderLabel(provider: ProviderName): string {
+  return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+function mappedProductRef(mapping: ProviderMapping): string {
+  if (mapping.provider === 'helloprint') {
+    const variantKey = String(mapping.provider_attributes?.variantKey ?? '').trim()
+    return variantKey || mapping.provider_product || '—'
+  }
+  return mapping.provider_product || '—'
+}
+
+function MappingCard({
+  mapping,
+  catalogItemName,
+  onEdit,
+  onDelete,
+  deleting,
+}: {
+  mapping: ProviderMapping
+  catalogItemName: string
+  onEdit: () => void
+  onDelete: () => void
+  deleting: boolean
+}) {
+  const [priceLabel, setPriceLabel] = useState<string | null>(null)
+  const [productLabel, setProductLabel] = useState<string | null>(null)
+  const [priceNote, setPriceNote] = useState<string | null>(null)
+  const [priceLoading, setPriceLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setPriceLoading(true)
+    void (async () => {
+      try {
+        const res = await fetch('/api/dashboard/signage/print-providers/mappings/price', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: mapping.provider,
+            provider_product: mapping.provider_product,
+            provider_attributes: mapping.provider_attributes,
+            quantity: 1,
+          }),
+        })
+        const j = (await res.json()) as {
+          priceLabel?: string | null
+          productLabel?: string | null
+          note?: string | null
+        }
+        if (cancelled) return
+        setPriceLabel(j.priceLabel ?? null)
+        setProductLabel(j.productLabel ?? null)
+        setPriceNote(j.note ?? null)
+      } catch {
+        if (!cancelled) {
+          setPriceLabel(null)
+          setProductLabel(null)
+          setPriceNote('Could not load price')
+        }
+      } finally {
+        if (!cancelled) setPriceLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [mapping])
+
+  const productRef = mappedProductRef(mapping)
+  const productName = productLabel || productRef
+
+  return (
+    <div className="rounded-lg border bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-slate-900">{catalogItemName}</h4>
+            {!mapping.is_active ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                Inactive
+              </span>
+            ) : (
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800">
+                Active
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-600">{formatProviderLabel(mapping.provider)}</p>
+          <p className="text-sm text-slate-800">
+            <span className="font-mono text-xs text-slate-500">{productRef}</span>
+            {productName !== productRef ? (
+              <>
+                {' '}
+                <span className="text-slate-400">·</span> {productName}
+              </>
+            ) : null}
+          </p>
+          <p className="text-sm font-medium text-slate-900">
+            {priceLoading ? (
+              <span className="text-slate-400">Loading price…</span>
+            ) : priceLabel ? (
+              priceLabel
+            ) : (
+              <span className="text-slate-400">Price unavailable</span>
+            )}
+            {priceNote && !priceLoading ? (
+              <span className="ml-1 text-xs font-normal text-slate-400">({priceNote})</span>
+            ) : null}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button size="sm" variant="outline" onClick={onEdit} disabled={deleting}>
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-red-600 hover:text-red-700"
+            onClick={onDelete}
+            disabled={deleting}
+          >
+            Delete
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MappingRow({
   mapping,
+  catalogItemName,
+  isEditing,
+  onStartEdit,
+  onFinishEdit,
   onSaved,
   onDeleted,
 }: {
   mapping: ProviderMapping
+  catalogItemName: string
+  isEditing: boolean
+  onStartEdit: () => void
+  onFinishEdit: () => void
   onSaved: (updated: ProviderMapping) => void
   onDeleted: () => void
 }) {
   const [provider, setProvider] = useState<ProviderName>(mapping.provider)
   const [providerProduct, setProviderProduct] = useState(mapping.provider_product || '')
+  const [providerAttributes, setProviderAttributes] = useState<Record<string, unknown>>(
+    () => ({ ...(mapping.provider_attributes || {}) })
+  )
   const [attributesText, setAttributesText] = useState(() =>
     JSON.stringify(mapping.provider_attributes || {}, null, 2)
   )
@@ -74,7 +252,35 @@ function MappingRow({
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [validateInfo, setValidateInfo] = useState<string | null>(null)
+  const [helloprintSelection, setHelloprintSelection] = useState<HelloprintCatalogSelection | null>(
+    () =>
+      mapping.provider === 'helloprint'
+        ? helloprintSelectionFromMapping(mapping.provider_product, mapping.provider_attributes || {})
+        : null
+  )
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const resetFromMapping = useCallback(() => {
+    setProvider(mapping.provider)
+    setProviderProduct(mapping.provider_product || '')
+    setProviderAttributes({ ...(mapping.provider_attributes || {}) })
+    setAttributesText(JSON.stringify(mapping.provider_attributes || {}, null, 2))
+    setOptionMatchText(mapping.option_match ? JSON.stringify(mapping.option_match, null, 2) : '')
+    setPriority(mapping.priority)
+    setIsActive(mapping.is_active)
+    setHelloprintSelection(
+      mapping.provider === 'helloprint'
+        ? helloprintSelectionFromMapping(mapping.provider_product, mapping.provider_attributes || {})
+        : null
+    )
+    setError(null)
+    setValidateInfo(null)
+    setBrowserOpen(false)
+  }, [mapping])
+
+  useEffect(() => {
+    if (isEditing) resetFromMapping()
+  }, [isEditing, resetFromMapping])
 
   useEffect(() => {
     if (savedAt == null) return
@@ -85,6 +291,7 @@ function MappingRow({
     }
   }, [savedAt])
   const [browserOpen, setBrowserOpen] = useState(false)
+  const [solopressPickerOpen, setSolopressPickerOpen] = useState(false)
   const [browserLoading, setBrowserLoading] = useState(false)
   const [browserError, setBrowserError] = useState<string | null>(null)
   const [browserProducts, setBrowserProducts] = useState<CloudprinterProduct[]>([])
@@ -94,9 +301,32 @@ function MappingRow({
     setSaving(true)
     setError(null)
     setSavedAt(null)
-    const attrs = safeParseJson(attributesText)
+    const attrs =
+      provider === 'solopress'
+        ? { ok: true as const, value: providerAttributes }
+        : provider === 'helloprint'
+          ? helloprintSelection?.variantKey?.includes('~')
+            ? {
+                ok: true as const,
+                value: {
+                  variantKey: helloprintSelection.variantKey,
+                  serviceLevel: helloprintSelection.serviceLevel,
+                },
+              }
+            : { ok: false as const, error: 'Select a Helloprint product and variantKey' }
+          : safeParseJson(attributesText)
     if (!attrs.ok) {
       setError(`provider_attributes: ${attrs.error}`)
+      setSaving(false)
+      return
+    }
+    if (provider === 'solopress' && !providerProduct.trim()) {
+      setError('Choose a Solopress product before saving')
+      setSaving(false)
+      return
+    }
+    if (provider === 'helloprint' && isActive && !helloprintSelection?.variantKey?.includes('~')) {
+      setError('Choose a Helloprint variantKey before activating')
       setSaving(false)
       return
     }
@@ -114,7 +344,10 @@ function MappingRow({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          provider_product: providerProduct.trim() || null,
+          provider_product:
+            provider === 'helloprint'
+              ? helloprintSelection?.productKey || providerProduct.trim() || null
+              : providerProduct.trim() || null,
           provider_attributes: attrs.value ?? {},
           option_match: optionMatchText.trim() ? om.value : null,
           priority,
@@ -127,6 +360,7 @@ function MappingRow({
       } else {
         onSaved(j.mapping)
         setSavedAt(Date.now())
+        onFinishEdit()
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
@@ -135,12 +369,15 @@ function MappingRow({
     }
   }, [
     attributesText,
+    helloprintSelection,
     optionMatchText,
     provider,
+    providerAttributes,
     providerProduct,
     priority,
     isActive,
     mapping.id,
+    onFinishEdit,
     onSaved,
   ])
 
@@ -163,49 +400,6 @@ function MappingRow({
       setSaving(false)
     }
   }, [mapping.id, onDeleted])
-
-  const validateVariantKey = useCallback(async () => {
-    setValidateInfo(null)
-    setError(null)
-    const attrs = safeParseJson(attributesText)
-    if (!attrs.ok) {
-      setError(`provider_attributes: ${attrs.error}`)
-      return
-    }
-    const variantKey = String((attrs.value || {}).variantKey ?? '').trim()
-    if (!variantKey) {
-      setError('Set provider_attributes.variantKey before validating')
-      return
-    }
-    const country = prompt('Destination country code (ISO 3166-1 alpha-2)?', 'GB')
-    if (!country) return
-    setValidateInfo('Validating…')
-    try {
-      const res = await fetch(
-        '/api/dashboard/signage/print-providers/helloprint/validate-variant',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            variantKey,
-            destinationCountryCode: country.trim().toUpperCase(),
-            serviceLevel:
-              (attrs.value as Record<string, unknown>).serviceLevel === 'string'
-                ? ((attrs.value as Record<string, unknown>).serviceLevel as string)
-                : 'standard',
-          }),
-        }
-      )
-      const j = (await res.json()) as { valid?: boolean; error?: string; sample?: unknown }
-      if (!res.ok || !j.valid) {
-        setValidateInfo(`Invalid: ${j.error || `HTTP ${res.status}`}`)
-      } else {
-        setValidateInfo('Valid variantKey ✓')
-      }
-    } catch (e) {
-      setValidateInfo(`Invalid: ${e instanceof Error ? e.message : 'Validation failed'}`)
-    }
-  }, [attributesText])
 
   const validateCloudprinterProduct = useCallback(async () => {
     setValidateInfo(null)
@@ -280,14 +474,39 @@ function MappingRow({
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b))
   }, [browserProducts, browserQuery])
 
+  if (!isEditing) {
+    return (
+      <MappingCard
+        mapping={mapping}
+        catalogItemName={catalogItemName}
+        onEdit={onStartEdit}
+        onDelete={remove}
+        deleting={saving}
+      />
+    )
+  }
+
   return (
-    <div className="rounded border bg-white p-3 text-sm">
+    <div className="rounded-lg border border-blue-200 bg-blue-50/30 p-3 text-sm">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">{catalogItemName}</p>
+          <p className="text-xs text-slate-500">Editing mapping</p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={onFinishEdit} disabled={saving}>
+          Cancel
+        </Button>
+      </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <Label className="text-xs">Provider</Label>
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value as ProviderName)}
+            onChange={(e) => {
+              const next = e.target.value as ProviderName
+              setProvider(next)
+              if (next !== 'helloprint') setHelloprintSelection(null)
+            }}
             className="mt-1 w-full rounded border px-2 py-1 text-sm"
           >
             <option value="solopress">Solopress</option>
@@ -296,42 +515,92 @@ function MappingRow({
           </select>
         </div>
         <div>
-          <Label className="text-xs">
-            {provider === 'solopress'
-              ? 'Solopress product (e.g. Flag)'
-              : provider === 'helloprint'
-              ? 'Helloprint product key (info only)'
-              : 'Cloudprinter product reference (e.g. panel_foamex_a4_p)'}
-          </Label>
-          <Input
-            value={providerProduct}
-            onChange={(e) => setProviderProduct(e.target.value)}
-            placeholder={
-              provider === 'solopress'
-                ? 'Flag'
-                : provider === 'helloprint'
-                ? 'flagcustomsize'
-                : 'panel_foamex_a4_p'
-            }
-            className="mt-1"
-          />
+          {provider === 'solopress' ? (
+            <>
+              <Label className="text-xs">Solopress product</Label>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {providerProduct ? (
+                  <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-sm font-medium text-blue-900">
+                    {providerProduct}
+                  </span>
+                ) : (
+                  <span className="text-xs text-amber-700">No product selected</span>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSolopressPickerOpen(true)}
+                  disabled={saving}
+                >
+                  {providerProduct ? 'Change product' : 'Choose product'}
+                </Button>
+              </div>
+            </>
+          ) : provider === 'helloprint' ? (
+            <>
+              <Label className="text-xs">Helloprint product</Label>
+              {helloprintSelection?.variantKey ? (
+                <p className="mt-1 text-xs text-slate-600">
+                  <span className="font-medium">{helloprintSelection.label}</span>{' '}
+                  <span className="font-mono text-emerald-700">({helloprintSelection.variantKey})</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-amber-700">No product selected</p>
+              )}
+            </>
+          ) : (
+            <>
+              <Label className="text-xs">
+                Cloudprinter product reference (e.g. panel_foamex_a4_p)
+              </Label>
+              <Input
+                value={providerProduct}
+                onChange={(e) => setProviderProduct(e.target.value)}
+                placeholder="panel_foamex_a4_p"
+                className="mt-1"
+              />
+            </>
+          )}
         </div>
-        <div className="md:col-span-2">
-          <Label className="text-xs">
-            Provider attributes (JSON).
-            {provider === 'helloprint'
-              ? ' Requires variantKey and serviceLevel.'
-              : provider === 'cloudprinter'
-              ? ' shipping_level (cp_postal | cp_ground | cp_saver | cp_fast) and optional options array.'
-              : ' Material, size, colours, turnaround, etc.'}
-          </Label>
-          <textarea
-            value={attributesText}
-            onChange={(e) => setAttributesText(e.target.value)}
-            rows={4}
-            className="mt-1 w-full rounded border px-2 py-1 font-mono text-xs"
-          />
-        </div>
+        {provider === 'solopress' ? (
+          <div className="md:col-span-2">
+            <SolopressAttributeEditor
+              productName={providerProduct}
+              value={providerAttributes}
+              onChange={setProviderAttributes}
+            />
+          </div>
+        ) : provider === 'helloprint' ? (
+          <div className="md:col-span-2">
+            <HelloprintProductSelect
+              enabled
+              value={helloprintSelection}
+              onChange={(selection) => {
+                setHelloprintSelection(selection)
+                if (selection) {
+                  setProviderProduct(selection.productKey)
+                  setProviderAttributes({
+                    variantKey: selection.variantKey,
+                    serviceLevel: selection.serviceLevel,
+                  })
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <div className="md:col-span-2">
+            <Label className="text-xs">
+              Provider attributes (JSON). shipping_level (cp_postal | cp_ground | cp_saver |
+              cp_fast) and optional options array.
+            </Label>
+            <textarea
+              value={attributesText}
+              onChange={(e) => setAttributesText(e.target.value)}
+              rows={4}
+              className="mt-1 w-full rounded border px-2 py-1 font-mono text-xs"
+            />
+          </div>
+        )}
         <div className="md:col-span-2">
           <Label className="text-xs">
             Applies when (optional JSON). Match against signage_order_items.selected_options.
@@ -371,11 +640,6 @@ function MappingRow({
         {savedAt ? (
           <span className="text-xs font-medium text-green-700">Saved ✓</span>
         ) : null}
-        {provider === 'helloprint' ? (
-          <Button size="sm" variant="outline" onClick={validateVariantKey} disabled={saving}>
-            Validate variantKey
-          </Button>
-        ) : null}
         {provider === 'cloudprinter' ? (
           <>
             <Button size="sm" variant="outline" onClick={openCloudprinterBrowser} disabled={saving}>
@@ -386,9 +650,16 @@ function MappingRow({
             </Button>
           </>
         ) : null}
-        <Button size="sm" variant="ghost" className="text-red-600" onClick={remove} disabled={saving}>
-          Delete
-        </Button>
+        {provider === 'solopress' ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setSolopressPickerOpen(true)}
+            disabled={saving}
+          >
+            Browse Solopress catalog
+          </Button>
+        ) : null}
       </div>
       {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
       {validateInfo ? <p className="mt-2 text-xs text-slate-600">{validateInfo}</p> : null}
@@ -470,6 +741,15 @@ function MappingRow({
           )}
         </div>
       ) : null}
+      <SolopressProductPicker
+        open={solopressPickerOpen}
+        onClose={() => setSolopressPickerOpen(false)}
+        selectedName={providerProduct}
+        onSelect={(product: SolopressCatalogProduct) => {
+          setProviderProduct(product.name)
+          setValidateInfo(`Selected: ${product.label}`)
+        }}
+      />
     </div>
   )
 }
@@ -480,6 +760,49 @@ export function SignageFulfilmentMappings({ catalogItems }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [newItemId, setNewItemId] = useState<number | ''>('')
   const [newProvider, setNewProvider] = useState<ProviderName>('solopress')
+  const [newSolopressProduct, setNewSolopressProduct] = useState<InlineSolopressProduct | null>(
+    null
+  )
+  const [newCloudprinterProduct, setNewCloudprinterProduct] =
+    useState<CloudprinterCatalogProduct | null>(null)
+  const [newHelloprintSelection, setNewHelloprintSelection] =
+    useState<HelloprintCatalogSelection | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [editingMappingIds, setEditingMappingIds] = useState<Set<number>>(() => new Set())
+
+  const startEditing = useCallback((id: number) => {
+    setEditingMappingIds((prev) => new Set(prev).add(id))
+  }, [])
+
+  const stopEditing = useCallback((id: number) => {
+    setEditingMappingIds((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }, [])
+
+  const catalogNameById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const c of catalogItems) map.set(c.id, c.name)
+    return map
+  }, [catalogItems])
+
+  const sortedMappings = useMemo(() => {
+    return [...mappings].sort((a, b) => {
+      const nameA = catalogNameById.get(a.catalog_item_id) || ''
+      const nameB = catalogNameById.get(b.catalog_item_id) || ''
+      const byName = nameA.localeCompare(nameB)
+      if (byName !== 0) return byName
+      return a.priority - b.priority || a.id - b.id
+    })
+  }, [catalogNameById, mappings])
+
+  const clearNewProviderProduct = useCallback(() => {
+    setNewSolopressProduct(null)
+    setNewCloudprinterProduct(null)
+    setNewHelloprintSelection(null)
+  }, [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -502,27 +825,37 @@ export function SignageFulfilmentMappings({ catalogItems }: Props) {
     void refresh()
   }, [refresh])
 
-  const byCatalog = useMemo(() => {
-    const map = new Map<number, ProviderMapping[]>()
-    for (const m of mappings) {
-      if (!map.has(m.catalog_item_id)) map.set(m.catalog_item_id, [])
-      map.get(m.catalog_item_id)!.push(m)
-    }
-    for (const list of map.values()) list.sort((a, b) => a.priority - b.priority || a.id - b.id)
-    return map
-  }, [mappings])
-
   const create = useCallback(async () => {
     if (typeof newItemId !== 'number') return
+    if (newProvider === 'solopress' && !newSolopressProduct?.name) {
+      setError('Select a Solopress product to match before adding the mapping')
+      return
+    }
+    if (newProvider === 'cloudprinter' && !newCloudprinterProduct?.reference) {
+      setError('Select a Cloudprinter product to match before adding the mapping')
+      return
+    }
+    if (
+      newProvider === 'helloprint' &&
+      (!newHelloprintSelection?.variantKey || !newHelloprintSelection.variantKey.includes('~'))
+    ) {
+      setError('Select a Helloprint product and variantKey before adding the mapping')
+      return
+    }
     setError(null)
+    setCreating(true)
     let defaultAttributes: Record<string, unknown> = {}
     let defaultProduct: string | null = null
     if (newProvider === 'helloprint') {
-      defaultAttributes = { variantKey: 'productkey~sku', serviceLevel: 'standard' }
+      defaultProduct = newHelloprintSelection!.productKey
+      defaultAttributes = {
+        variantKey: newHelloprintSelection!.variantKey,
+        serviceLevel: newHelloprintSelection!.serviceLevel,
+      }
     } else if (newProvider === 'solopress') {
-      defaultProduct = 'PUT_PRODUCT_NAME_HERE'
+      defaultProduct = newSolopressProduct!.name
     } else if (newProvider === 'cloudprinter') {
-      defaultProduct = 'panel_foamex_a4_p'
+      defaultProduct = newCloudprinterProduct!.reference
       defaultAttributes = { shipping_level: 'cp_saver', file_type: 'product', options: [] }
     }
     try {
@@ -542,11 +875,30 @@ export function SignageFulfilmentMappings({ catalogItems }: Props) {
         setError(j.error || `HTTP ${res.status}`)
       } else {
         setMappings((prev) => [...prev, j.mapping!])
+        setEditingMappingIds((prev) => new Set(prev).add(j.mapping!.id))
+        setNewItemId('')
+        clearNewProviderProduct()
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Create failed')
+    } finally {
+      setCreating(false)
     }
-  }, [newItemId, newProvider])
+  }, [
+    clearNewProviderProduct,
+    newCloudprinterProduct,
+    newHelloprintSelection,
+    newItemId,
+    newProvider,
+    newSolopressProduct,
+  ])
+
+  const canAddMapping =
+    typeof newItemId === 'number' &&
+    ((newProvider === 'solopress' && Boolean(newSolopressProduct?.name)) ||
+      (newProvider === 'cloudprinter' && Boolean(newCloudprinterProduct?.reference)) ||
+      (newProvider === 'helloprint' &&
+        Boolean(newHelloprintSelection?.variantKey?.includes('~'))))
 
   return (
     <Card>
@@ -567,6 +919,7 @@ export function SignageFulfilmentMappings({ catalogItems }: Props) {
               onChange={(e) => {
                 const v = e.target.value
                 setNewItemId(v ? parseInt(v, 10) : '')
+                clearNewProviderProduct()
               }}
               className="rounded border px-2 py-1 text-sm"
             >
@@ -579,46 +932,59 @@ export function SignageFulfilmentMappings({ catalogItems }: Props) {
             </select>
             <select
               value={newProvider}
-              onChange={(e) => setNewProvider(e.target.value as ProviderName)}
+              onChange={(e) => {
+                setNewProvider(e.target.value as ProviderName)
+                clearNewProviderProduct()
+              }}
               className="rounded border px-2 py-1 text-sm"
             >
               <option value="solopress">Solopress</option>
               <option value="helloprint">Helloprint</option>
               <option value="cloudprinter">Cloudprinter</option>
             </select>
-            <Button size="sm" onClick={create} disabled={newItemId === ''}>
-              Add (inactive)
+            <Button size="sm" onClick={create} disabled={!canAddMapping || creating}>
+              {creating ? 'Adding…' : 'Add mapping'}
             </Button>
           </div>
+
+          <SolopressProductSelect
+            enabled={newProvider === 'solopress' && typeof newItemId === 'number'}
+            value={newSolopressProduct}
+            onChange={setNewSolopressProduct}
+          />
+          <CloudprinterProductSelect
+            enabled={newProvider === 'cloudprinter' && typeof newItemId === 'number'}
+            value={newCloudprinterProduct}
+            onChange={setNewCloudprinterProduct}
+          />
+          <HelloprintProductSelect
+            enabled={newProvider === 'helloprint' && typeof newItemId === 'number'}
+            value={newHelloprintSelection}
+            onChange={setNewHelloprintSelection}
+          />
         </div>
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
 
-        <div className="space-y-3">
-          {catalogItems.map((cat) => {
-            const items = byCatalog.get(cat.id) || []
-            if (items.length === 0) return null
-            return (
-              <div key={cat.id} className="rounded-lg border bg-white p-3">
-                <div className="mb-2 text-sm font-semibold text-slate-800">{cat.name}</div>
-                <div className="space-y-2">
-                  {items.map((m) => (
-                    <MappingRow
-                      key={m.id}
-                      mapping={m}
-                      onSaved={(updated) =>
-                        setMappings((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-                      }
-                      onDeleted={() =>
-                        setMappings((prev) => prev.filter((x) => x.id !== m.id))
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
+        <div className="space-y-2">
+          {sortedMappings.map((m) => (
+            <MappingRow
+              key={m.id}
+              mapping={m}
+              catalogItemName={catalogNameById.get(m.catalog_item_id) || 'Unknown item'}
+              isEditing={editingMappingIds.has(m.id)}
+              onStartEdit={() => startEditing(m.id)}
+              onFinishEdit={() => stopEditing(m.id)}
+              onSaved={(updated) =>
+                setMappings((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+              }
+              onDeleted={() => {
+                stopEditing(m.id)
+                setMappings((prev) => prev.filter((x) => x.id !== m.id))
+              }}
+            />
+          ))}
         </div>
       </CardContent>
     </Card>

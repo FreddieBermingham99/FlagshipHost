@@ -65,15 +65,23 @@ export async function POST(req: Request) {
     body.provider_attributes && typeof body.provider_attributes === 'object'
       ? (body.provider_attributes as Record<string, unknown>)
       : {}
-  if (body.provider === 'helloprint' && typeof provider_attributes.variantKey !== 'string') {
+  const isActive = typeof body.is_active === 'boolean' ? body.is_active : true
+  if (
+    body.provider === 'helloprint' &&
+    isActive &&
+    typeof provider_attributes.variantKey !== 'string'
+  ) {
     return NextResponse.json(
-      { error: 'Helloprint mappings require provider_attributes.variantKey' },
+      {
+        error:
+          'Helloprint mappings require provider_attributes.variantKey before they can be activated',
+      },
       { status: 400 }
     )
   }
-  if (body.provider === 'solopress' && !body.provider_product) {
+  if (body.provider === 'solopress' && isActive && !String(body.provider_product ?? '').trim()) {
     return NextResponse.json(
-      { error: 'Solopress mappings require provider_product' },
+      { error: 'Solopress mappings require provider_product before they can be activated' },
       { status: 400 }
     )
   }

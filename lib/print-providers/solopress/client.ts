@@ -1,23 +1,27 @@
 /**
  * Low-level Solopress API client. One function per endpoint we use.
  *
- * Auth: Solopress v2 docs describe "API Key" auth but do not pin the header name.
- * The published shape is `Authorization: <token>` (Bearer style). We let users
- * override the header name and value prefix via env if Solopress changes it.
+ * Auth: Solopress uses `X-Api-Key: <token>` (see https://api.solopress.com/docs).
+ * Override via SOLOPRESS_AUTH_HEADER / SOLOPRESS_AUTH_PREFIX if your account differs.
  *
  *   SOLOPRESS_API_KEY        = '<token>'
- *   SOLOPRESS_AUTH_HEADER    = 'Authorization'   (default)
- *   SOLOPRESS_AUTH_PREFIX    = 'Bearer '          (default, set empty string if Solopress changes)
- *   SOLOPRESS_BASE_URL       = 'https://api.solopress.com'
+ *   SOLOPRESS_BASE_URL       = 'https://api.solopress.com'  (host only — not …/api/v2)
+ *   SOLOPRESS_AUTH_HEADER    = 'X-Api-Key'   (default)
+ *   SOLOPRESS_AUTH_PREFIX    = ''            (default)
  */
 
 import 'server-only'
 
 const DEFAULT_BASE_URL = 'https://api.solopress.com'
 
+/** Host root only — strips a trailing `/api/v2` if pasted from Solopress docs. */
+export function normalizeSolopressBaseUrl(raw?: string | null): string {
+  const trimmed = (raw?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, '')
+  return trimmed.replace(/\/api\/v2$/i, '')
+}
+
 function getBaseUrl(): string {
-  const raw = process.env.SOLOPRESS_BASE_URL?.trim()
-  return (raw || DEFAULT_BASE_URL).replace(/\/+$/, '')
+  return normalizeSolopressBaseUrl(process.env.SOLOPRESS_BASE_URL)
 }
 
 function getAuthHeader(): { name: string; value: string } {
@@ -25,8 +29,8 @@ function getAuthHeader(): { name: string; value: string } {
   if (!apiKey) {
     throw new Error('SOLOPRESS_API_KEY is not configured')
   }
-  const name = process.env.SOLOPRESS_AUTH_HEADER?.trim() || 'Authorization'
-  const prefix = process.env.SOLOPRESS_AUTH_PREFIX ?? 'Bearer '
+  const name = process.env.SOLOPRESS_AUTH_HEADER?.trim() || 'X-Api-Key'
+  const prefix = process.env.SOLOPRESS_AUTH_PREFIX ?? ''
   return { name, value: `${prefix}${apiKey}` }
 }
 
@@ -203,7 +207,7 @@ export async function solopressGetAttributeOptions(
 ): Promise<SolopressApiResponse<unknown>> {
   return callSolopress(
     'GET',
-    `/api/v2/product/${encodeURIComponent(productName)}/option/${encodeURIComponent(attributeName)}`
+    `/api/v2/product/${encodeURIComponent(productName)}/attribute?attributeName=${encodeURIComponent(attributeName)}`
   )
 }
 
