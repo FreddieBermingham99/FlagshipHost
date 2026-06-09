@@ -15,12 +15,15 @@ import {
   ChevronDown,
   ChevronUp,
   ImageOff,
+  LayoutGrid,
+  Table2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SignageOrderProviderJobs } from '@/components/SignageOrderProviderJobs'
+import { SignageOrdersTableView, type TableOrder } from '@/components/SignageOrdersTableView'
 
 type Order = {
   id: number
@@ -167,7 +170,10 @@ function FilterPill({
 }
 
 export default function SignageOrdersDashboard() {
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
+  const [showFulfilled, setShowFulfilled] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
+  const [tableOrders, setTableOrders] = useState<TableOrder[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [selected, setSelected] = useState<OrderDetail | null>(null)
   const [total, setTotal] = useState(0)
@@ -244,24 +250,36 @@ export default function SignageOrdersDashboard() {
     setLoading(true)
     setLoadError(null)
     try {
-      const params = buildQueryParams({ includePage: true, includeLimit: true })
+      const params = buildQueryParams({
+        includePage: viewMode === 'card',
+        includeLimit: true,
+      })
+      if (viewMode === 'table') {
+        params.set('with_items', '1')
+        params.set('limit', '500')
+      }
 
       const res = await fetch(`/api/dashboard/signage/orders?${params.toString()}`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`)
       }
-      setOrders(data.orders || [])
+      if (viewMode === 'table') {
+        setTableOrders(data.orders || [])
+      } else {
+        setOrders(data.orders || [])
+      }
       setTotal(data.total || 0)
       if (data.filters?.cities) setAvailableCities(data.filters.cities)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load orders')
-      setOrders([])
+      if (viewMode === 'table') setTableOrders([])
+      else setOrders([])
       setTotal(0)
     } finally {
       setLoading(false)
     }
-  }, [buildQueryParams])
+  }, [buildQueryParams, viewMode])
 
   useEffect(() => {
     fetchOrders()
@@ -774,12 +792,52 @@ export default function SignageOrdersDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Orders ({total}) · {groupedOrders.length} stashpoint{groupedOrders.length === 1 ? '' : 's'}
-            </CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base">
+                Orders ({total})
+              </CardTitle>
+              <div className="flex gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                <Button
+                  size="sm"
+                  variant={viewMode === 'card' ? 'default' : 'ghost'}
+                  onClick={() => setViewMode('card')}
+                  className="h-7 gap-1.5 px-3 text-xs"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  Cards
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === 'table' ? 'default' : 'ghost'}
+                  onClick={() => setViewMode('table')}
+                  className="h-7 gap-1.5 px-3 text-xs"
+                >
+                  <Table2 className="h-3.5 w-3.5" />
+                  Table
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {loading ? (
+            {viewMode === 'table' ? (
+              <SignageOrdersTableView
+                orders={tableOrders}
+                selectedIds={selectedIds}
+                loading={loading}
+                onToggleOrder={(id, checked) => toggleOrderSelection(id, checked)}
+                onToggleGroup={(ids, checked) => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev)
+                    for (const id of ids) checked ? next.add(id) : next.delete(id)
+                    return next
+                  })
+                  setAllMatchingSelected(false)
+                }}
+                onViewOrder={openOrder}
+                showFulfilled={showFulfilled}
+                onToggleShowFulfilled={() => setShowFulfilled((v) => !v)}
+              />
+            ) : loading ? (
               <p className="text-sm text-slate-400">Loading orders...</p>
             ) : orders.length === 0 ? (
               <p className="text-sm text-slate-400">No orders found.</p>
@@ -872,27 +930,29 @@ export default function SignageOrdersDashboard() {
               })
             )}
 
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="text-xs text-slate-500">
-                Page {page} / {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+            {viewMode === 'card' && (
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-slate-500">
+                  Page {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -6,6 +6,7 @@ import {
   isSubmissionsDbConfigured,
   listSignageOrderIds,
   listSignageOrders,
+  listSignageOrdersWithItems,
   updateSignageOrdersStatus,
   type SignageOrderFilters,
 } from '@/lib/submissions-db'
@@ -44,6 +45,9 @@ export async function GET(req: Request) {
     const idsOnly = ['1', 'true', 'yes'].includes(
       String(url.searchParams.get('ids_only') || '').toLowerCase()
     )
+    const withItems = ['1', 'true', 'yes'].includes(
+      String(url.searchParams.get('with_items') || '').toLowerCase()
+    )
 
     if (idsOnly) {
       const ids = await listSignageOrderIds(filters)
@@ -51,7 +55,7 @@ export async function GET(req: Request) {
     }
 
     const [result, cities] = await Promise.all([
-      listSignageOrders(filters),
+      withItems ? listSignageOrdersWithItems(filters) : listSignageOrders(filters),
       getDistinctSignageOrderCities(),
     ])
     return NextResponse.json({

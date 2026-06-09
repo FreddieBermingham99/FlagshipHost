@@ -1560,6 +1560,58 @@ export async function listSignageOrders(
   })
 }
 
+export async function listSignageOrdersWithItems(
+  filters: SignageOrderFilters = {}
+): Promise<{ rows: SignageOrderWithItems[]; total: number }> {
+  await ensureTable()
+  const { where, params } = buildSignageOrderWhere(filters)
+  const rawLimit = filters.limit ?? 200
+  const rawPage = filters.page ?? 1
+  const limit = Math.min(Math.max(1, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 200), 500)
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.floor(rawPage) : 1)
+  const offset = (page - 1) * limit
+
+  return withClient(async (c) => {
+    const countRes = await c.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM signage_orders ${where}`,
+      params
+    )
+    const total = parseInt(countRes.rows[0].count, 10)
+    const rowsRes = await c.query<SignageOrderRow & { items: SignageOrderItemRow[] }>(
+      `SELECT so.*,
+        COALESCE(
+          (SELECT json_agg(
+            json_build_object(
+              'id', soi.id,
+              'order_id', soi.order_id,
+              'catalog_item_id', soi.catalog_item_id,
+              'item_name_snapshot', soi.item_name_snapshot,
+              'quantity', soi.quantity,
+              'selected_options', soi.selected_options,
+              'generated_asset_link', soi.generated_asset_link,
+              'asset_error', soi.asset_error
+            ) ORDER BY soi.id ASC
+           )
+           FROM signage_order_items soi WHERE soi.order_id = so.id
+          ), '[]'::json
+        ) AS items
+       FROM signage_orders so
+       ${where}
+       ORDER BY so.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    )
+    return {
+      rows: rowsRes.rows.map((r) => ({
+        ...r,
+        host_id: r.host_id ?? null,
+        submission_batch_id: r.submission_batch_id ?? null,
+      })),
+      total,
+    }
+  })
+}
+
 export async function listSignageOrderIds(filters: SignageOrderFilters = {}): Promise<number[]> {
   await ensureTable()
   const { where, params } = buildSignageOrderWhere(filters)
